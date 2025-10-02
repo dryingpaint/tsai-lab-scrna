@@ -8,6 +8,8 @@ This script performs:
 2. Quality control and doublet detection
 3. Normalization and dimensionality reduction
 4. Clustering and cell type annotation
+
+uv run python cellbender_qc_annotation.py
 """
 
 import warnings
@@ -41,7 +43,7 @@ def main():
     print("Starting single-cell analysis pipeline...")
 
     # Define parameters
-    base_path = "/Users/melissadu/Documents/tsai-lab-urop/base/"
+    base_path = "/Users/melissadu/Documents/tsai-lab-urop/data"
     sample_names = [f"D25-{i}" for i in range(2675, 2691)]
     custom_name = "_processed_feature_bc_matrix_filtered.h5"
 

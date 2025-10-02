@@ -27,15 +27,15 @@ pip install uv
 # Create virtual environment and install dependencies
 uv venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-uv pip install -r requirements.txt
+uv pip install -e .
 ```
 
 ### Alternative: Use uv to run scripts directly (recommended):
 
 ```bash
 # uv will automatically manage the virtual environment
-uv run python 1_cellbender_qc_annotation.py
-uv run python 2_limma_voom_gsea.py
+uv run python cellbender_qc_annotation.py
+uv run python limma_voom_gsea.py
 ```
 
 **Why use uv?**
