@@ -1,0 +1,547 @@
+---
+title: "1_apoe_cellbender_integration_and_annotation"
+output: html_document
+date: "2025-09-08"
+---
+
+```{r read in cellranger output}
+library(Matrix)
+library(stringr)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(Seurat)
+library(scDblFinder)
+
+```
+
+```{r read in cellbender output}
+library('scCustomize')
+
+cell_bender_merged <- Read_CellBender_h5_Multi_Directory(base_path = "/home/zk27/apoe4/data/output_10k/base/",
+    custom_name = "_processed_feature_bc_matrix_filtered.h5", sample_names = c("D25-2675", "D25-2676", "D25-2677", "D25-2678","D25-2679","D25-2680","D25-2681","D25-2682","D25-2683","D25-2684","D25-2685","D25-2686","D25-2687","D25-2688","D25-2689","D25-2690"), merge = TRUE)
+
+cell_bender_seurat <- CreateSeuratObject(counts = cell_bender_merged, names.field = 1, names.delim = "_")
+
+saveRDS(cell_bender_seurat, '/home/zk27/apoe4/data/cellbender_filtered_merged_objects.rds')
+```
+
+```{r}
+cell_bender_seurat <- readRDS( '/home/zk27/apoe4/data/cellbender_filtered_merged_objects.rds')
+
+apoe4_obj <- cell_bender_seurat
+apoe4_obj[["percent.mt"]] <- PercentageFeatureSet(
+  object = apoe4_obj,
+  pattern = "^mt-",
+  assay = "RNA"
+)
+apoe4_obj[["percent.ribo"]] <- PercentageFeatureSet(apoe4_obj, pattern = "^Rp[sl]", assay = "RNA")
+
+VlnPlot(apoe4_obj, features = c("nFeature_RNA", "nCount_RNA"), ncol = 4)
+VlnPlot(apoe4_obj, features = c("percent.mt", "percent.ribo"), ncol = 4)
+
+FeatureScatter(apoe4_obj, feature1 = "nFeature_RNA", feature2 = "percent.mt")
+FeatureScatter(apoe4_obj, feature1 = "nCount_RNA", feature2 = "nFeature_RNA") 
+
+RidgePlot(apoe4_obj, features = "percent.mt", group.by = "orig.ident")+ geom_vline(xintercept = c(10, 20), linetype = "dashed")
+RidgePlot(apoe4_obj, features = "percent.ribo", group.by = "orig.ident")+ geom_vline(xintercept = c(10, 30), linetype = "dashed")
+
+FeatureScatter(apoe4_obj, 
+               feature1 = "nCount_RNA", 
+               feature2 = "nFeature_RNA",
+               pt.size = 1.5) +
+  scale_x_log10() + 
+  scale_y_log10() + 
+  geom_hline(yintercept = c(300, 5000), linetype = "dashed") +
+  geom_vline(xintercept = c(500, 1000), linetype = "dashed") +
+  labs(title = "RNA Counts vs. Genes Detected (Colored by MT %)")
+
+table(cell_bender_seurat$orig.ident)
+```
+
+```{r add metadata}
+sample_ids <- c("D25-2675", "D25-2676", "D25-2677", "D25-2678",
+                "D25-2679", "D25-2680", "D25-2681", "D25-2682",
+                "D25-2683", "D25-2684", "D25-2685", "D25-2686",
+                "D25-2687", "D25-2688", "D25-2689", "D25-2690")
+
+metadata <- data.frame(
+  orig.ident = sample_ids,
+  Genotype = rep(c("E3", "E4", "E3", "E4"), each = 4),
+  Stimulation = rep(c("Ctrl", "GENUS"), each = 8),
+  Sex = rep(c("M","M", "F", 'F'), times = 4)
+)
+
+current_meta <- cell_bender_seurat@meta.data
+
+new_meta <- merge(current_meta, metadata, by = "orig.ident", all.x = TRUE)
+
+rownames(new_meta) <- rownames(current_meta)
+cell_bender_seurat@meta.data <- new_meta
+
+```
+
+```{r doublet removal}
+library(Seurat)
+library(scDblFinder)
+library(SingleCellExperiment)
+library(dplyr)
+
+set.seed(123)
+
+# Split by sample
+seurat_list <- SplitObject(cell_bender_seurat, split.by = "orig.ident")
+
+# A helper to compute per-sample, robust QC bounds (IQR-based)
+iqr_bounds <- function(x, k = 3) {
+  q1 <- quantile(x, 0.25, na.rm = TRUE)
+  q3 <- quantile(x, 0.75, na.rm = TRUE)
+  iqr <- q3 - q1
+  lo <- max(1, floor(q1 - k*iqr))  # lower bound not below 1
+  hi <- ceiling(q3 + k*iqr)
+  c(lo = lo, hi = hi)
+}
+
+processed_list <- lapply(names(seurat_list), function(snm){
+  message("QC + scDblFinder on: ", snm)
+  seu <- seurat_list[[snm]]
+
+  DefaultAssay(seu) <- "RNA"
+  # Add MT% if not present (change pattern if your MT genes differ)
+  if (!"percent.mt" %in% colnames(seu@meta.data)) {
+    seu[["percent.mt"]] <- PercentageFeatureSet(seu, pattern = "^mt-")
+  }
+
+  # Get robust bounds per sample
+  nb <- iqr_bounds(seu$nCount_RNA, k = 3)
+  nf <- iqr_bounds(seu$nFeature_RNA, k = 3)
+
+  # Light prefilter: remove extreme low counts/features and very high MT
+  seu <- subset(
+    seu,
+    subset = nCount_RNA >= nb["lo"] &
+             nFeature_RNA >= nf["lo"] &
+             percent.mt <= 20
+  )
+
+  # Convert and run scDblFinder
+  sce <- suppressWarnings(as.SingleCellExperiment(seu))
+  sce <- scDblFinder(sce, samples = NULL)  # per-object (already per-sample)
+
+  # Attach scDblFinder columns back
+  meta_scdbl <- as.data.frame(colData(sce)) %>% dplyr::select(starts_with("scDblFinder"))
+  meta_scdbl <- meta_scdbl[colnames(seu), , drop = FALSE]
+  seu <- AddMetaData(seu, metadata = meta_scdbl)
+
+  seu
+})
+names(processed_list) <- names(seurat_list)
+
+# Summaries
+dbl_summary <- bind_rows(lapply(names(processed_list), function(snm) {
+  md <- processed_list[[snm]]@meta.data
+  tibble(
+    sample = snm,
+    n_cells = nrow(md),
+    n_doublet = sum(md$scDblFinder.class == "doublet", na.rm = TRUE),
+    pct_doublet = round(100 * n_doublet / n_cells, 2)
+  )
+}))
+print(dbl_summary)
+
+singlet_list <- lapply(processed_list, function(seu) subset(seu, subset = scDblFinder.class == "singlet"))
+
+names <- names(singlet_list)
+collapse_to_counts <- function(obj, assay = "RNA") {
+  rna <- obj[[assay]]
+  # choose a counts-like layer to keep
+  lyr <- if ("counts" %in% Layers(rna)) "counts" else DefaultLayer(rna)
+  mat <- SeuratObject::LayerData(rna, layer = lyr)  # dgCMatrix
+
+  # rebuild a minimal Assay5 with ONLY one layer: "counts"
+  obj[[assay]] <- CreateAssay5Object(counts = mat)
+  DefaultAssay(obj) <- assay
+  DefaultLayer(obj[[assay]]) <- "counts"
+  obj
+}
+
+singlet_list <- lapply(names(singlet_list), function(nm) {
+  obj <- collapse_to_counts(singlet_list[[nm]], assay = "RNA")
+  obj <- RenameCells(obj, add.cell.id = nm)
+  obj
+})
+names(singlet_list) <- names
+
+merged <- merge(
+  x  = singlet_list[[1]],
+  y  = singlet_list[-1],
+  add.cell.ids = names(singlet_list)
+)
+merged_joinend <- JoinLayers(merged)
+
+saveRDS(merged_joinend, "/home/zk27/apoe4/data/S1_cellbender_singlets_merged_qc.rds")
+```
+
+
+
+```{r qc, fig.width = 6, fig.height=4}
+merged_joinend <- readRDS("/home/zk27/apoe4/data/S1_cellbender_singlets_merged_qc.rds")
+apoe4_obj_sketch <- merged_joinend
+cmat <- GetAssayData(apoe4_obj_sketch, assay = "RNA", layer = "counts")
+gene_counts <- Matrix::rowSums(cmat > 0)
+genes_to_keep <- names(gene_counts[gene_counts >= 10])
+
+apoe4_obj_sketch <- subset(apoe4_obj_sketch, features = genes_to_keep)
+
+# MT% (case-insensitive; human/mouse safe)
+apoe4_obj_sketch[["percent.mt"]] <- PercentageFeatureSet(apoe4_obj_sketch, pattern = "(?i)^mt-")
+
+# QC thresholds (your updated ones)
+apoe4_obj_sketch <- subset(
+  apoe4_obj_sketch,
+  subset = nFeature_RNA > 200 & nFeature_RNA < 8000  & percent.mt < 10
+)
+```
+
+```{r, fig.width= 12}
+apoe4_obj_sketch <- SCTransform(
+  apoe4_obj_sketch,
+  method = "glmGamPoi",
+  vars.to.regress = c("percent.mt",'Stimulation'),   # drop Sex & nFeature_RNA here
+  variable.features.n = 3000,
+  verbose = FALSE
+) %>%
+  RunPCA(npcs = 50, verbose = FALSE) %>%
+  RunUMAP(reduction = "pca", dims = 1:30, verbose = FALSE) %>%
+  FindNeighbors(reduction = "pca", dims = 1:30, verbose = FALSE) %>%
+  FindClusters(resolution = 0.3, verbose = FALSE)
+
+ElbowPlot(apoe4_obj_sketch, ndims = 30)
+
+DimPlot(apoe4_obj_sketch, group.by = c('Sex','Genotype'))
+DimPlot(apoe4_obj_sketch, group.by = c('seurat_clusters'),label = TRUE)
+DimPlot(apoe4_obj_sketch, group.by = c('Stimulation'),label = TRUE)
+
+FeaturePlot(apoe4_obj_sketch, features = c("Slc17a7","Satb2","Cux1","Cux2","Rorb",
+                                            "Bcl11b","Tle4","Foxp2","Gad1","Gad2",'Dpp10'))
+FeaturePlot(apoe4_obj_sketch, features = c('Atp1a2', 'Cped1', 'Ptgds'))
+```
+
+```{r,fig.width=16}
+markers_mouse <- list(
+  Neuron = c("Snap25","Rbfox3","Syp"),
+  Excit = c("Slc17a7","Camk2a","Satb2"),
+  Inhib = c("Gad1","Gad2","Slc6a1"),
+  Astro = c("Slc1a2","Slc1a3","Aqp4","Aldh1l1","Gfap"),
+  Oligo = c("Plp1","Mog","Mobp","Mbp"),
+  OPC   = c("Pdgfra","Cspg4"),
+  Micro = c("P2ry12","Tmem119","Cx3cr1","Csf1r","Sall1","Aif1"),
+  Endo  = c("Pecam1","Kdr","Flt1","Klf2","Slco1a4"),
+  Peri  = c("Pdgfrb","Rgs5","Kcnj8","Abcc9"),
+  Smc   = c("Acta2","Myh11","Tagln"),
+  VLMC  = c("Col1a1","Col1a2","Lum","Dcn"),
+  Epend = c("Foxj1","Dynlrb2","Spef2"),
+  ChP   = c("Ttr","Folr1","Kcnk1","Kcne2"),
+  IT    = c("Satb2","Cux1","Cux2","Rorb"),
+  PT    = c("Bcl11b","Fezf2"),
+  CT    = c("Tle4","Foxp2","Pcp4","Tbr1"),
+  PVALB = c("Pvalb","Kcnc1","Gabra1","Gabra4"),
+  SST   = c("Sst","Chrm2","Gpr149"),
+  VIP   = c("Vip","Vipr2","Reln","Igfbpl1")
+)
+
+DefaultAssay(apoe4_obj_sketch) <- "SCT"  # or "RNA" if not using SCT
+DotPlot(apoe4_obj_sketch, features = unique(unlist(markers_mouse))) + RotatedAxis()
+
+
+DotPlot(apoe4_obj_sketch, features = c("Col1a1","Col1a2","Lum","Dcn", "Acta2","Myh11","Tagln","Pdgfrb","Rgs5","Kcnj8","Abcc9")) + RotatedAxis()
+
+
+apoe4_obj_sketch_save <- apoe4_obj_sketch
+
+
+
+```
+
+```{r}
+markers_2 <- FindMarkers(apoe4_obj_sketch_save, ident.1 = '2', ident.2 = '0', logfc.threshold = 0.25) 
+markers_10 <- FindMarkers(apoe4_obj_sketch_save, ident.1 = '10', logfc.threshold = 0.25)
+markers_11 <- FindMarkers(apoe4_obj_sketch_save, ident.1 = '11', logfc.threshold = 0.25)
+markers_3 <- FindMarkers(apoe4_obj_sketch_save, ident.1 = '3', logfc.threshold = 0.25)
+
+```
+
+
+```{r, fig.width=12, fig.height=7}
+map <- c(
+  "0"="ExN",
+  "1"="ExN",
+  "2"="ExN",
+  "3"="ExN",
+  "4"="InN_SST",
+  "5"="AST",
+  "6"="ExN",
+  "7"="ExN",
+  "8"="InN_VIP",
+  "9"="ExN",
+  "10"="ExN",
+  "11"="VLMC",
+  "12"="Peri",
+  "13"="ODC",
+  "14"="Endo",
+  "15"="OPC",
+  "16"="ExN"
+)
+cl_ids <- as.character(apoe4_obj_sketch$seurat_clusters)
+celltype <- unname(map[cl_ids])
+
+names(celltype) <- colnames(apoe4_obj_sketch)
+
+apoe4_obj_sketch <- AddMetaData(
+  object = apoe4_obj_sketch,
+  metadata = celltype,
+  col.name = "celltype"
+)
+
+table(apoe4_obj_sketch$celltype, apoe4_obj_sketch$seurat_clusters)
+
+DimPlot(apoe4_obj_sketch, group.by = "celltype", label = TRUE, repel = TRUE) + NoLegend()
+celltype_colors <- c(
+  "ExN" = "navy",
+  "InN_SST" = "#1F968B",
+  "InN_VIP" = "#00A9CF",
+  "AST" = "#E37777",
+  "ODC" = "#E6B800",
+  "OPC" = "#A259D1",
+  "Endo" = "#D55E00",
+  "Peri" = "#8C564B",
+  "VLMC" = "#E7298A"
+)
+
+# Plot with custom colors
+DimPlot(
+  apoe4_obj_sketch,
+  group.by = "celltype",
+  label = TRUE,
+  repel = TRUE,
+  cols = celltype_colors, pt.size = 0.01
+)
+
+saveRDS(apoe4_obj_sketch,'/home/zk27/apoe4/data/Annotated_cellbender_singlets_merged_qc.rds')
+
+apoe4_obj_sketch <- readRDS('/home/zk27/apoe4/data/Annotated_cellbender_singlets_merged_qc.rds')
+
+apoe4_obj_sketch <- AddModuleScore(apoe4_obj_sketch, features = c("P2ry12","Tmem119","Cx3cr1","Csf1r","Sall1","Aif1"),name = 'microglia_score')
+
+DotPlot(apoe4_obj_sketch, features = c("P2ry12","Tmem119","Cx3cr1","Csf1r","Sall1","Aif1", "Hexb","Fcrls","Siglech","Olfml3","Gpr34","P2ry13","Abi3"))
+
+opc_odc <- subset(apoe4_obj_sketch, subset = celltype == 'OPC'|celltype == 'ODC')
+opc_odc <- SCTransform(
+  opc_odc,
+  method = "glmGamPoi",
+  vars.to.regress = c("percent.mt",'Stimulation'),   # drop Sex & nFeature_RNA here
+  variable.features.n = 3000,
+  verbose = FALSE
+) %>%
+  RunPCA(npcs = 50, verbose = FALSE) %>%
+  RunUMAP(reduction = "pca", dims = 1:7, verbose = FALSE) %>%
+  FindNeighbors(reduction = "pca", dims = 1:7, verbose = FALSE) %>%
+  FindClusters(resolution = 0.1, verbose = FALSE)
+
+ElbowPlot(opc_odc, ndims = 30)
+
+DimPlot(opc_odc)
+
+DotPlot(opc_odc, features = c("P2ry12","Tmem119","Cx3cr1","Csf1r","Sall1","Aif1", "Hexb","Fcrls","Siglech","Olfml3","Gpr34","P2ry13","Abi3","Mbp","Plp1","Mobp","Pdgfra","Cspg4","Sox10"))
+
+```
+
+```{r}
+# ===== QC distribution pack =====
+library(Seurat)
+library(ggplot2)
+library(ggridges)
+library(patchwork)
+library(Matrix)
+
+obj <- merged_lane12
+assay_name <- if ("RNA" %in% names(obj@assays)) "RNA" else DefaultAssay(obj)
+DefaultAssay(obj) <- assay_name
+
+# Ensure nCount_*/nFeature_* exist (counts slot)
+counts <- GetAssayData(obj, assay = assay_name, slot = "counts")
+nCount_col   <- paste0("nCount_", assay_name)
+nFeature_col <- paste0("nFeature_", assay_name)
+obj@meta.data[[nCount_col]]   <- Matrix::colSums(counts)
+obj@meta.data[[nFeature_col]] <- Matrix::colSums(counts > 0)
+
+# % mitochondrial & % ribosomal (mouse: mt-; human: MT-)
+mt.pattern <- if (any(grepl("^MT-", rownames(obj)))) "^MT-" else "^mt-"
+obj[["percent.mt"]]   <- PercentageFeatureSet(obj, pattern = mt.pattern, assay = assay_name)
+obj[["percent.ribo"]] <- PercentageFeatureSet(obj, pattern = "^Rpl|^Rps",  assay = assay_name)
+
+# Choose grouping (use your preferred: "seurat_clusters", "cell_type", "orig.ident", etc.)
+if (!"cluster" %in% colnames(obj@meta.data)) obj$cluster <- Idents(obj)
+
+df <- obj@meta.data
+df$log10_nCount   <- log10(df[[nCount_col]] + 1)
+df$log10_nFeature <- log10(df[[nFeature_col]] + 1)
+
+# ---- Global distributions (all cells) ----
+p_reads_global <- ggplot(df, aes(x = .data[[nCount_col]])) +
+  geom_density(fill = "grey80") +
+  scale_x_log10() +
+  labs(title = "UMIs per cell (global)", x = "UMIs (log10)", y = "Density") +
+  theme_classic()
+
+p_genes_global <- ggplot(df, aes(x = .data[[nFeature_col]])) +
+  geom_density(fill = "grey80") +
+  labs(title = "Genes per cell (global)", x = "Genes", y = "Density") +
+  theme_classic()
+
+# ---- Per-cluster ridge distributions ----
+p_reads_ridge <- ggplot(df, aes(x = log10_nCount, y = as.factor(cluster), fill = as.factor(cluster))) +
+  ggridges::geom_density_ridges(scale = 1.8, rel_min_height = 0.01, alpha = 0.8, color = NA) +
+  labs(title = "UMIs per cell by cluster", x = "log10(UMIs+1)", y = "Cluster") +
+  theme_ridges() + theme(legend.position = "none")
+
+p_genes_ridge <- ggplot(df, aes(x = .data[[nFeature_col]], y = as.factor(cluster), fill = as.factor(cluster))) +
+  ggridges::geom_density_ridges(scale = 1.8, rel_min_height = 0.01, alpha = 0.8, color = NA) +
+  labs(title = "Genes per cell by cluster", x = "Genes", y = "Cluster") +
+  theme_ridges() + theme(legend.position = "none")
+
+# ---- Violin plots (common QC look) ----
+p_vln <- VlnPlot(
+  obj,
+  features = c(nCount_col, nFeature_col, "percent.mt", "percent.ribo"),
+  group.by = "cluster",
+  pt.size = 0.05
+) & theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# ---- nCount vs nFeature relationship (hexbin) ----
+p_hex <- ggplot(df, aes(x = .data[[nCount_col]], y = .data[[nFeature_col]])) +
+  stat_bin_hex(bins = 60) +
+  scale_x_log10() +
+  labs(title = "nCount vs nFeature", x = "UMIs per cell (log10)", y = "Genes per cell") +
+  theme_classic()
+
+# Show everything
+(p_reads_global | p_genes_global) /
+(p_reads_ridge  | p_genes_ridge) /
+p_vln /
+p_hex
+
+p_reads_global
+p_genes_global
+p_reads_ridge
+p_genes_ridge
+p_vln
+
+p_reads_global
+```
+
+
+```{r make cell type marker violin plots, fig.width=8}
+apoe4_obj_sketch <- apoe4_obj
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+stopifnot("celltype" %in% colnames(apoe4_obj_sketch@meta.data))
+
+marker_genes <- c(
+  "Slc17a7","Camk2a","Pcp4",         # ExN
+  "Gad1","Gad2","Sst","Vip",         # InN
+    "Aqp4","Slc1a3","Slc1a2",    # AST
+  "Mbp","Plp1","Mobp",                # ODC
+  "Pdgfra","Cspg4","Sox10",          # OPC       # AST
+  'Pecam1','Flt1','Slco1a4',
+  'Abcc9','Rgs5','Pdgfrb',
+  'Col1a2','Dcn', 'Acta2', 'Myh11'
+  )
+
+# Only keep genes present in the object to avoid errors
+marker_genes <- intersect(marker_genes, rownames(apoe4_obj_sketch))
+if (length(marker_genes) == 0) stop("None of the specified marker genes were found.")
+
+
+desired_order <- c("ExN","InN_SST","InN_VIP","AST","ODC","OPC","Endo","Peri","VLMC", 'SMC')
+
+# Apply as factor levels
+apoe4_obj_sketch$celltype <- factor(apoe4_obj_sketch$celltype, levels = desired_order)
+apoe4_obj_sketch$celltype <- factor(
+  apoe4_obj_sketch$celltype,
+  levels = rev(c("ExN","InN_SST","InN_VIP","AST","ODC","OPC","Endo","Peri","VLMC",'SMC'))
+)
+Idents(apoe4_obj_sketch) <- "celltype"
+
+DotPlot(apoe4_obj_sketch, features = marker_genes, group.by = 'celltype', scale = TRUE,scale.by = 'radius', assay = 'SCT', cols       = c("#ECEFF1", "#2C7FB8")) + RotatedAxis()
+
+```
+
+
+```{r annotate smooth muscle cells}
+endo <- subset(apoe4_obj, celltype == 'VLMC')
+endo <- SCTransform(endo,
+  method = "glmGamPoi",
+  vars.to.regress = c("percent.mt",'Stimulation'),   # drop Sex & nFeature_RNA here
+  variable.features.n = 3000,
+  verbose = FALSE
+  ) %>%
+    RunPCA(npcs = 50, verbose = FALSE) %>%
+    RunUMAP(reduction = "pca", dims = 1:10, verbose = FALSE) %>%
+    FindNeighbors(reduction = "pca", dims = 1:10, verbose = FALSE) %>%
+    FindClusters(resolution = 0.5, verbose = FALSE)
+
+DimPlot(endo,reduction = 'umap')
+DotPlot(endo, features = c('Acta2', 'Myh11'))
+
+smooth_muscle_cell <- subset(endo, seurat_clusters == '3')
+
+## add smc annotation back to the dataset
+smc_cells <- WhichCells(endo, idents = "3")
+# make sure we’re editing a character vector, not a factor
+apoe4_obj$celltype <- as.character(apoe4_obj$celltype)
+# (recommended) only relabel if they were VLMC originally
+apoe4_obj$celltype[Cells(apoe4_obj) %in% smc_cells & apoe4_obj$celltype == "VLMC"] <- "SMC"
+
+# set your preferred order (now including SMC)
+apoe4_obj$celltype <- factor(
+  apoe4_obj$celltype,
+  levels = c("ExN","InN_SST","InN_VIP","AST","ODC","OPC","Endo","Peri","VLMC","SMC")
+)
+
+# verify relabeling
+table_before <- table(apoe4_obj$celltype == "VLMC")  # crude check
+table_after  <- table(apoe4_obj$celltype)
+table_after
+
+celltype_colors <- c(
+  "ExN" = "navy",
+  "InN_SST" = "#1F968B",
+  "InN_VIP" = "#00A9CF",
+  "AST" = "#E37777",
+  "ODC" = "#E6B800",
+  "OPC" = "#A259D1",
+  "Endo" = "#D55E00",
+  "Peri" = "#8C564B",
+  "VLMC" = "#E7298A",
+  'SMC' = 'orange'
+)
+
+# Plot with custom colors
+DimPlot(
+  apoe4_obj,
+  group.by = "celltype",
+  label = TRUE,
+  repel = TRUE,
+  cols = celltype_colors, pt.size = 0.01
+)
+```
+
+
+
+
+
+

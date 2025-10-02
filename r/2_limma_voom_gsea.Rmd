@@ -1,0 +1,760 @@
+---
+title: "2_limma_voom_gsea_apoe34"
+output: html_document
+date: "2025-09-10"
+---
+
+```{r,fig.width=4, fig.height=4}
+apoe4_obj <- readRDS('/home/zk27/apoe4/data/Annotated_cellbender_singlets_merged_qc.rds')
+apoe4_obj$condition <- paste0(apoe4_obj$Genotype, "_", apoe4_obj$Stimulation)
+apoe4_obj$condition <- factor(apoe4_obj$condition,
+                                levels = c("E3_Ctrl","E3_GENUS","E4_Ctrl","E4_GENUS"))
+DefaultAssay(apoe4_obj) <- 'SCT'
+ast <- subset(apoe4_obj, celltype == 'AST')
+endo <- subset(apoe4_obj, celltype == 'Endo')
+
+DotPlot(ast, features  = c( 'Aqp4', 'Zeb2','Vegfa'), group.by = 'condition')
+DotPlot(endo, features  = endo_genes, group.by = 'condition')
+endo_genes <- c("Abcc9","Kcnq1",'Plcb1',
+                "Cldn5","Ocln","Tjp1","Pecam1","Flt1","Kdr","Tek")
+ast_genes <- c("Aqp4","Pla2g", 'Ptgs1', 'Cyp2c', 'Slc16a3', 'Adora1', 'Ip3r2', 'Gfap', 'Pgt', "Kcnj10","Ptgs2","Pla2g4a","Edn1", "Vegfa")
+VlnPlot(ast, features  = c( 'Aqp4', 'App'), group.by = 'condition')
+
+p <- DotPlot(ast,
+             features  = ast_genes,
+             group.by = "condition",
+             assay = "SCT",   # or "SCT" if normalized there
+             cols = c("#f0f0f0","#0571b0"), # grey → blue gradient
+             scale = TRUE) + 
+  RotatedAxis() +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(size = 12, face = "bold", angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 12, face = "bold"),
+    axis.title = element_blank(),
+    legend.position = "right",
+    panel.grid = element_blank()
+  ) +
+  labs(title = "Endothelial vasomotion-related genes across conditions")
+p
+```
+
+```{r}
+library(Seurat)
+library(dplyr)
+library(tidyr)
+library(pheatmap)
+
+# Define endothelial vasomotion genes
+genes_of_interest <- c('Aqp4',
+  "Snta1","Dtna","Dag1","Rhou","Epha5","Rtn1","Tmcc1","Arl6ip1","Ldlr",
+  "Clstn1","Rab10","Epha4","Adra1a","Mff","Ogdh","Reep1","Slc1a2","Slc9a9",
+  "Mcu","Pde4d","Thsd7a","Cdh10","Nlgn1","Adgrb3","Lsamp","Dpysl2","Fmn2",
+  "Lrrc4c","Stx1b","Snap25","Unc13a","Stxbp1","Stxbp5l","Cadps","Cadps2",
+  "Rab6a","Rab6b","Rab11fip4","Dmd","Slc4a10","Adcy1","Adcy2","Pde1a",
+  "Pde2a","Pde4a","Camk2a","Camk4","Sorcs2","Gpm6a","Astn1","Grin1",
+  "Grin2a","Grin2b","Gria1","Gria3","Gria4","Homer1"
+)
+genes_of_interest <- c(
+  "Slc1a2","Slc9a9","Rab10","Mcu","Pde4d","Cdh10","Nlgn1",
+  "Adgrb3","Lsamp","Dpysl2","Fmn2","Lrrc4c"
+)
+genes_of_interest <- c('Aqp4',
+  "Snta1","Dtna", 'Dmd','Dag1'
+)
+
+genes_of_interest <- intersect(ast_e3_genus_ctrl$gene, circadian_clock)
+genes_of_interest <- circadian_clock
+# Average expression across conditions (Endo cells only)
+endo_avg <- AverageExpression(
+  ast,
+  features = genes_of_interest,
+  #features = vasc_smc_genes,
+  group.by = "condition",
+  assays = "SCT", slot = "data"   # slot="data" gives log-normalized
+)
+
+# Convert to matrix
+mat <- as.matrix(endo_avg$SCT)
+mat <- na.omit(mat)
+mat_clean <- mat[rowSums(mat == 0) != ncol(mat), ]
+
+# Scale by row (genes) so each gene is relative across conditions
+pheatmap(mat_clean,
+         scale = "row",
+         cluster_rows = TRUE,
+         cluster_cols = FALSE,
+         color = colorRampPalette(c("navy","white","darkred"))(100),
+         fontsize_row = 12,
+         fontsize_col = 12,
+         border_color = NA,
+         main = "Aqp4 localization-related genes", file = '/home/zk27/apoe4/results/astrocytes_activation_genes.png', height = 2, width = 4)
+
+```
+
+```{r,fig.width=3, fig.height=4}
+library(msigdbr)
+library(dplyr)
+apoe4_obj <- readRDS('/home/zk27/apoe4/data/Annotated_cellbender_singlets_merged_qc.rds')
+apoe4_obj <- SCTransform(
+  apoe4_obj,
+  method = "glmGamPoi",
+  vars.to.regress = c("percent.mt",'Stimulation'),   # drop Sex & nFeature_RNA here
+  variable.features.n = 3000,
+  verbose = FALSE
+) 
+
+apoe4_obj$condition <- paste0(apoe4_obj$Genotype, "_", apoe4_obj$Stimulation)
+apoe4_obj$condition <- factor(apoe4_obj$condition,
+                                levels = c("E3_Ctrl","E3_GENUS","E4_Ctrl","E4_GENUS"))
+
+# Extract the one of interest
+vasc_smc_genes <- kegg_list[["KEGG_VASCULAR_SMOOTH_MUSCLE_CONTRACTION"]]
+circadian_clock <- gobp_list[['GOBP_ENTRAINMENT_OF_CIRCADIAN_CLOCK']]
+astrocyte_development <- gobp_list[['GOBP_ASTROCYTE_DEVELOPMENT']]
+astrocyte_activation <- gobp_list[['GOBP_ASTROCYTE_ACTIVATION']]
+
+
+# Or create your own gene list
+vasomotion_custom <- c("Aqp4","Pla2g", 'Ptgs1', 'Cyp2c', 'Slc16a3', 'Adora1', 'Ip3r2', 'Gfap', 'Pgt', "Kcnj10","Ptgs2","Pla2g4a","Edn1", "Vegfa")
+
+library(Seurat)
+
+# Use your Seurat object
+DefaultAssay(apoe4_obj) <- "SCT"   # or SCT if normalized
+
+ast <- subset(apoe4_obj, celltype == 'AST')
+
+ast <- SCTransform(
+  ast,
+  method = "glmGamPoi",
+  vars.to.regress = c("percent.mt",'Stimulation'),   # drop Sex & nFeature_RNA here
+  variable.features.n = 3000,
+  verbose = FALSE
+) 
+
+apoe4_obj <- AddModuleScore(
+  object = apoe4_obj,
+  features = list(circadian_clock),
+  name = "GOBP_circadian_entrainment_clock"
+)
+apoe4_obj <- AddModuleScore(
+  object = apoe4_obj,
+  features = list(vasc_smc_genes),
+  name = "KEGG_VASOMOTION"
+)
+apoe4_obj <- AddModuleScore(
+  object = apoe4_obj,
+  features = list(astrocyte_development),
+  name = "GOBP_ASTROCYTE_DEVELOPMENT"
+)
+apoe4_obj <- AddModuleScore(
+  object = apoe4_obj,
+  features = list(astrocyte_activation),
+  name = "GOBP_ASTROCYTE_ACTIVATION"
+)
+
+apoe4_obj$GOBP_ASTROCYTE_ACTIVATION1_pos <- apoe4_obj$GOBP_ASTROCYTE_ACTIVATION1
+m <- min(apoe4_obj$GOBP_ASTROCYTE_ACTIVATION1, na.rm = TRUE)
+apoe4_obj$GOBP_ASTROCYTE_ACTIVATION1_pos <- apoe4_obj$GOBP_ASTROCYTE_ACTIVATION1 - m + 1e-6 
+
+v <- apoe4_obj$GOBP_ASTROCYTE_ACTIVATION1
+apoe4_obj$GOBP_ASTROCYTE_ACTIVATION1_pos <- (v - min(v)) / (max(v) - min(v))
+
+VlnPlot(apoe4_obj, features = "GOBP_ASTROCYTE_ACTIVATION1_pos", group.by = "celltype", pt.size = 0)
+
+meta <- apoe4_obj@meta.data %>%
+  dplyr::select(celltype, Genotype, Stimulation, GOBP_ASTROCYTE_ACTIVATION1)
+meta_subset <- meta %>%
+  dplyr::filter(celltype %in% c('AST'))
+
+meta_subset <- meta_subset %>%
+  mutate(Condition = paste(Genotype, Stimulation, sep = "_")) %>%
+  group_by(celltype, Condition) %>%
+  summarise(mean_score = mean(GOBP_ASTROCYTE_ACTIVATION1, na.rm = TRUE), .groups = "drop")
+
+
+ggplot(meta_subset, aes(x = Condition, y = mean_score, fill = Condition)) +
+  geom_col(width = 0.7, color = "black", alpha = 0.9) +   # thinner, outlined bars
+  facet_wrap(~celltype, scales = "free_y") +
+  scale_fill_manual(
+    values = c(
+      "E3_Ctrl"  = "#1B9E77",
+      "E3_GENUS" = "#66C2A5",
+      "E4_Ctrl"  = "#D95F02",
+      "E4_GENUS" = "#FC8D62"
+    )
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    strip.text = element_text(size = 14, face = "bold"), # bigger facet labels
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12), # angled x labels
+    axis.title.x = element_blank(),
+    panel.grid.major.x = element_blank(), # cleaner
+    panel.grid.minor = element_blank(),
+    legend.position = "none" # hide redundant legend
+  ) +
+  labs(
+    y = "Mean circadian rhythm entrainment module score"
+  )
+#ggsave('/home/zk27/apoe4/results/circadian_entrainmennt_astrocytes.png',width = 4, height = 4)
+
+
+
+```
+
+
+```{r}
+
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(Matrix)
+  library(dplyr)
+  library(tidyr)
+  library(edgeR)
+  library(limma)
+})
+
+cell_type_col <- "celltype"   
+
+if ("SCT" %in% names(apoe4_obj@assays)) {
+  apoe4_obj@assays$SCT <- NULL
+}
+DefaultAssay(apoe4_obj) <- "RNA"
+
+gene_keep <- !grepl("^(Gm|Rik)-", rownames(apoe4_obj))
+apoe4_obj <- apoe4_obj[gene_keep, ]
+
+stopifnot(all(c("orig.ident","Sex","Genotype","Stimulation", cell_type_col) %in% colnames(apoe4_obj@meta.data)))
+
+apoe4_obj$cell_type_for_pb <- apoe4_obj@meta.data[[cell_type_col]]
+apoe4_obj$cell_type_for_pb <- gsub('InN_VIP','VIP',apoe4_obj$cell_type_for_pb)
+apoe4_obj$cell_type_for_pb <- gsub('InN_SST','SST',apoe4_obj$cell_type_for_pb)
+
+apoe4_obj$group_id <- paste(apoe4_obj$orig.ident, apoe4_obj$cell_type_for_pb, sep = "--")
+
+pb <- AggregateExpression(
+  object  = apoe4_obj,
+  group.by = "group_id",
+  assay   = "RNA",
+  slot    = "counts"
+)
+counts <- pb$RNA  # genes x pseudobulk samples
+
+keep_cols <- Matrix::colSums(counts) > 0
+counts <- counts[, keep_cols, drop = FALSE]
+
+meta <- apoe4_obj@meta.data %>%
+  mutate(group_id = paste(orig.ident, cell_type_for_pb, sep = "--")) %>%
+  filter(group_id %in% colnames(counts))
+
+sample_info <- meta %>%
+  group_by(group_id) %>%
+  summarise(
+    sample_id  = dplyr::first(orig.ident),
+    Sex        = dplyr::first(Sex),
+    Genotype   = dplyr::first(Genotype),
+    Stimulation= dplyr::first(Stimulation),
+    cell_type  = dplyr::first(cell_type_for_pb),
+    n_cells    = dplyr::n(),
+    .groups    = "drop"
+  ) %>%
+  filter(group_id %in% colnames(counts))
+
+sample_info <- sample_info[match(colnames(counts), sample_info$group_id), ]
+stopifnot(all(sample_info$group_id == colnames(counts)))
+
+sample_info$condition <- factor(
+  paste0(sample_info$Genotype, "_", sample_info$Stimulation),
+  levels = c("E3_Ctrl","E3_GENUS","E4_Ctrl","E4_GENUS")
+)
+
+sample_info$Sex <- factor(sample_info$Sex)
+
+
+min_cells_per_pb <- 10
+keep_pb <- sample_info$n_cells >= min_cells_per_pb
+counts <- counts[, keep_pb, drop = FALSE]
+sample_info <- sample_info[keep_pb, , drop = FALSE]
+
+cell_types <- sort(unique(sample_info$cell_type))
+
+results_list <- list()
+
+for (ct in cell_types) {
+  message("=== Cell type: ", ct, " ===")
+
+  keep_ct <- sample_info$cell_type == ct
+  if (sum(keep_ct) < 4) {  # need enough samples to estimate variance
+    message("Skipping ", ct, " (too few pseudobulk samples)")
+    next
+  }
+
+  counts_ct <- counts[, keep_ct, drop = FALSE]
+  info_ct   <- droplevels(sample_info[keep_ct, ])
+
+  dge <- DGEList(counts = counts_ct)
+  design <- model.matrix(~ 0 + condition + Sex, data = info_ct)
+
+  #keep_genes <- filterByExpr(dge, group = info_ct$condition)
+  keep_genes <- filterByExpr(
+    dge,
+    design      = design,   # use your model (better than group=)
+    min.count   = 5,        # counts in a library to be “expressed”
+    min.total.count = 10,   # total across all samples
+    min.prop    = 0.2,      # expressed in ≥20% of samples in at least one group
+    large.n     = TRUE
+  )
+  dge <- dge[keep_genes, , keep.lib.sizes = FALSE]
+
+  if (sum(keep_genes) < 200) {
+    message("Skipping ", ct, " (too few genes after filtering)")
+    next
+  }
+
+  dge <- calcNormFactors(dge)
+
+  colnames(design) <- gsub("^condition", "", colnames(design))  # E3_CTRL, E3_GENUS, E4_CTRL, E4_GENUS, Sex...
+
+  present_conditions <- intersect(c("E3_Ctrl","E3_GENUS","E4_Ctrl","E4_GENUS"), colnames(design))
+  if (length(present_conditions) < 2) {
+    message("Skipping ", ct, " (not enough conditions represented)")
+    next
+  }
+
+  v   <- voom(dge, design, plot = FALSE)
+  fit <- lmFit(v, design)
+
+  all_contrasts <- c(
+    "E3_GENUS_vs_Ctrl" = "E3_GENUS - E3_Ctrl",
+    "E4_GENUS_vs_Ctrl" = "E4_GENUS - E4_Ctrl",
+    "E4_vs_E3_Ctrl"    = "E4_Ctrl  - E3_Ctrl",
+    "E4_vs_E3_GENUS"   = "E4_GENUS - E3_GENUS"
+  )
+
+  terms_in <- function(expr) {
+    t <- unlist(strsplit(gsub("\\s+", "", expr), "[-+]"))
+    t[nchar(t) > 0]
+  }
+  for (nm in names(all_contrasts)) {
+    expr  <- all_contrasts[[nm]]
+    terms <- terms_in(expr)
+    cat("\n--- ", nm, " ---\n", sep = "")
+    cat("expr:  ", expr, "\n", sep = "")
+    cat("terms: ", paste(terms, collapse = ", "), "\n", sep = "")
+    present <- terms %in% colnames(design)
+    cat("present in design: ", paste(present, collapse = ", "), "\n", sep = "")
+    if (!all(present)) {
+      cat("MISSING: ", paste(setdiff(terms, colnames(design)), collapse = ", "), "\n", sep = "")
+    } else {
+      cat("OK: all terms present\n")
+    }
+  }
+  
+  keep_contr <- vapply(all_contrasts, function(expr) {
+    terms <- terms_in(expr)
+    all(terms %in% colnames(design))
+  }, logical(1))
+  
+  contrasts_mat <- makeContrasts(contrasts = all_contrasts[keep_contr], levels = design)
+
+  fit2 <- contrasts.fit(fit, contrasts_mat)
+  fit2 <- eBayes(fit2)
+
+  # Collect results for each valid contrast
+  for (cn in colnames(contrasts_mat)) {
+    tt <- topTable(fit2, coef = cn, number = Inf, sort.by = "P")
+    tt$gene <- rownames(tt)
+    tt$cell_type <- ct
+    tt$contrast  <- cn
+    results_list[[paste(ct, cn, sep = "__")]] <- tt
+  }
+}
+
+
+```
+
+```{r}
+# save results
+if (length(results_list)) {
+  all_res <- bind_rows(results_list)
+  # Write a single TSV with all results
+  #write.table(all_res, file = "pseudobulk_limma_voom_results.tsv",
+  #            sep = "\t", quote = FALSE, row.names = FALSE)
+  message("Saved: pseudobulk_limma_voom_results.tsv")
+} else {
+  message("No results produced (check sample/condition balance per cell type).")
+}
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+sig_up <- all_res %>%
+  filter(!is.na(P.Value), !is.na(logFC)) %>%
+  filter(P.Value < 0.05, logFC > 0.5)
+
+sig_down <- all_res %>%
+  filter(!is.na(P.Value), !is.na(logFC)) %>%
+  filter(P.Value < 0.05, logFC < -0.5)
+
+counts_up <- as.data.frame(table(
+  cell_type = as.character(sig_up$cell_type),
+  contrast  = as.character(sig_up$contrast)
+))
+names(counts_up)[3] <- "n"
+
+# Ensure a complete grid so missing combos show as 0
+ct_order <- c("ExN","SST","VIP","AST","ODC","OPC","Endo","Peri","VLMC")
+contrast_order <- c("E3_GENUS - E3_Ctrl",
+                    "E4_GENUS - E4_Ctrl",
+                    "E4_Ctrl  - E3_Ctrl",
+                    "E4_GENUS - E3_GENUS")
+
+counts_up <- counts_up %>%
+  mutate(cell_type = factor(cell_type, levels = ct_order),
+         contrast  = factor(contrast, levels = contrast_order)) %>%
+  complete(cell_type, contrast, fill = list(n = 0))
+
+# ---- 3) Heatmap of #significant (up) genes ----
+p_up <- ggplot(counts_up, aes(x = contrast, y = cell_type, fill = n)) +
+  geom_tile(color = "white", linewidth = 0.3) +
+  geom_text(aes(label = n), size = 3.2) +
+  scale_fill_gradient(low = "#F2F2F2", high = "#2C7FB8") +
+  labs(title = "Number of significant DE genes (P < 0.05 & logFC > 0.5)",
+       x = "Contrast", y = "Cell type", fill = "# DE genes") +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
+
+p_up
+
+# ---- 4) (Optional) If you also want a side-by-side view of UP vs DOWN ----
+counts_down <- as.data.frame(table(
+  cell_type = as.character(sig_down$cell_type),
+  contrast  = as.character(sig_down$contrast)
+))
+names(counts_down)[3] <- "n"
+
+counts_up2 <- counts_up %>%
+  mutate(direction = "Up")
+
+# Rebuild a complete grid for up/down faceting
+counts_both <- bind_rows(
+  counts_up %>% mutate(direction = "Up"),
+  counts_down %>%
+    mutate(cell_type = factor(cell_type, levels = ct_order),
+           contrast  = factor(contrast, levels = contrast_order), 
+           direction = "Down")
+) %>%
+  complete(cell_type, contrast, direction, fill = list(n = 0)) %>%
+  mutate(direction = factor(direction, levels = c("Up","Down")))
+
+p_both <- ggplot(counts_both, aes(x = contrast, y = cell_type, fill = n)) +
+  geom_tile(color = "white", linewidth = 0.3) +
+  geom_text(aes(label = n), size = 3.0) +
+  scale_fill_gradient(low = "#F2F2F2", high = "#3B4CC0") +
+  labs(title = "Significant DE genes by direction ",
+       x = "Contrast", y = "Cell type", fill = "# DE genes") +
+  facet_wrap(~ direction, ncol = 2) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
+
+p_both  # uncomment to view the up/down faceted version
+
+# ---- 5) Save if needed ----
+# ggsave("sig_counts_heatmap_up.pdf", p_up, width = 9, height = 5, units = "in")
+# ggsave("sig_counts_heatmap_updown.pdf", p_both, width = 12, height = 5, units = "in")
+
+
+ast_e3_genus_ctrl <- all_res%>%
+  dplyr::filter(cell_type == 'AST')%>%
+  dplyr::filter(contrast == 'E3_GENUS - E3_Ctrl')%>%
+  dplyr::filter(abs(logFC) > 0.5)%>%
+  dplyr::filter(P.Value < 0.05)
+
+write.csv(all_res, '/home/zk27/apoe4/results/all_degs.csv')
+all_res <- read_csv('/home/zk27/apoe4/results/all_degs.csv')
+```
+
+```{r GSEA}
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(fgsea)
+  library(msigdbr)
+  library(rWikiPathways)
+  library(GSEABase)
+  library(AnnotationDbi)
+  library(org.Mm.eg.db)
+  library(purrr)
+  library(readr)
+})
+
+# -------- Gene set collections (your exact specification) --------
+# WikiPathways (mouse, Entrez)
+wp_mouse <- downloadPathwayArchive(organism = "Mus musculus", format = "gmt")
+wp_gmt   <- getGmt(wp_mouse)
+wp_list  <- geneIds(wp_gmt)
+names(wp_list) <- sapply(wp_gmt, function(p) setName(p))
+names(wp_list) <- sub("%.*", "", names(wp_list))  # clean names
+
+# MSigDB mouse
+hallmark <- msigdbr(species = "Mus musculus", category = "H")
+hallmark_list <- split(hallmark$gene_symbol, hallmark$gs_name)
+
+# KEGG legacy (as requested)
+kegg <- msigdbr(species = "Mus musculus", category = "C2", subcollection = "CP:KEGG_LEGACY")
+kegg_list <- split(kegg$gene_symbol, kegg$gs_name)
+
+reactome <- msigdbr(species = "Mus musculus", category = "C2", subcategory = "CP:REACTOME")
+reactome_list <- split(reactome$gene_symbol, reactome$gs_name)
+
+gobp <- msigdbr(species = "Mus musculus", category = "C5", subcategory = "BP")
+gobp_list <- split(gobp$gene_symbol, gobp$gs_name)
+
+# -------- Helpers --------
+make_ranks <- function(df) {
+  df <- df %>% filter(!is.na(gene), !is.na(logFC), !is.na(P.Value))
+  if (!nrow(df)) return(NULL)
+  r <- df$logFC * -log10(df$P.Value)
+  names(r) <- df$gene
+  # deduplicate symbols by keeping the largest |rank|
+  r <- tapply(r, names(r), function(x) x[which.max(abs(x))])
+  r <- sort(unlist(r), decreasing = TRUE)
+  if (length(r) < 15) return(NULL)
+  r
+}
+
+map_symbols_to_entrez <- function(symbols) {
+  gm <- AnnotationDbi::select(org.Mm.eg.db,
+                              keys = unique(symbols),
+                              keytype = "SYMBOL",
+                              columns = "ENTREZID")
+  gm[!is.na(gm$ENTREZID), ]
+}
+
+run_fgsea_safe <- function(pathways, ranks, minSize = 10, maxSize = 3000) {
+  if (is.null(ranks) || length(ranks) < minSize) return(NULL)
+  suppressWarnings(
+    fgsea(pathways = pathways, stats = ranks, minSize = minSize, maxSize = maxSize)
+  )
+}
+
+# -------- Containers --------
+gsea_hallmark     <- list()
+gsea_kegg_legacy  <- list()
+gsea_reactome     <- list()
+gsea_gobp         <- list()
+gsea_wikipathways <- list()
+
+# -------- Iterate over cell types and contrasts --------
+stopifnot(all(c("gene","logFC","P.Value","cell_type","contrast") %in% colnames(all_res)))
+
+cts <- sort(unique(all_res$cell_type))
+for (ct in cts) {
+  print(ct)
+  ct_df <- all_res %>% filter(cell_type == ct)
+  if (!nrow(ct_df)) next
+
+  gsea_hallmark[[ct]]     <- list()
+  gsea_kegg_legacy[[ct]]  <- list()
+  gsea_reactome[[ct]]     <- list()
+  gsea_gobp[[ct]]         <- list()
+  gsea_wikipathways[[ct]] <- list()
+
+  for (cn in sort(unique(ct_df$contrast))) {
+    res <- ct_df %>% filter(contrast == cn)
+
+    # ----- SYMBOL-based ranks for H/KEGG-LEGACY/REACTOME/GO:BP -----
+    ranks <- make_ranks(res)
+
+    if (!is.null(ranks)) {
+      gsea_hallmark[[ct]][[cn]]    <- run_fgsea_safe(hallmark_list, ranks)
+      gsea_kegg_legacy[[ct]][[cn]] <- run_fgsea_safe(kegg_list,     ranks)
+      gsea_reactome[[ct]][[cn]]    <- run_fgsea_safe(reactome_list, ranks)
+      gsea_gobp[[ct]][[cn]]        <- run_fgsea_safe(gobp_list,     ranks)
+    } else {
+      gsea_hallmark[[ct]][[cn]]    <- NULL
+      gsea_kegg_legacy[[ct]][[cn]] <- NULL
+      gsea_reactome[[ct]][[cn]]    <- NULL
+      gsea_gobp[[ct]][[cn]]        <- NULL
+    }
+
+    # ----- Entrez-based ranks for WikiPathways -----
+    if (!is.null(ranks)) {
+      gm <- map_symbols_to_entrez(names(ranks))
+      if (nrow(gm)) {
+        r_ent <- ranks[names(ranks) %in% gm$SYMBOL]
+        names(r_ent) <- gm$ENTREZID[match(names(r_ent), gm$SYMBOL)]
+        # collapse duplicates on Entrez by max |rank|
+        r_ent <- tapply(r_ent, names(r_ent), function(x) x[which.max(abs(x))])
+        r_ent <- sort(unlist(r_ent), decreasing = TRUE)
+        gsea_wikipathways[[ct]][[cn]] <- run_fgsea_safe(wp_list, r_ent)
+      } else {
+        gsea_wikipathways[[ct]][[cn]] <- NULL
+      }
+    } else {
+      gsea_wikipathways[[ct]][[cn]] <- NULL
+    }
+  }
+}
+
+bind_gsea <- function(lst, collection_name) {
+  bind_rows(lapply(names(lst), function(ct) {
+    bind_rows(lapply(names(lst[[ct]]), function(cn) {
+      df <- lst[[ct]][[cn]]
+      if (is.null(df)) return(NULL)
+      df %>%
+        arrange(padj, pval) %>%
+        mutate(cell_type = ct, contrast = cn, collection = collection_name)
+    }))
+  }))
+}
+
+hallmark_tbl     <- bind_gsea(gsea_hallmark,     "Hallmark")
+kegg_legacy_tbl  <- bind_gsea(gsea_kegg_legacy,  "KEGG_LEGACY")
+reactome_tbl     <- bind_gsea(gsea_reactome,     "REACTOME")
+gobp_tbl         <- bind_gsea(gsea_gobp,         "GO:BP")
+wikipathways_tbl <- bind_gsea(gsea_wikipathways, "WikiPathways")
+
+# Example saves:
+#write_tsv(hallmark_tbl,     "/home/zk27/apoe4/results/gsea_hallmark_all.tsv")
+#write_tsv(kegg_legacy_tbl,  "/home/zk27/apoe4/results/gsea_kegg_legacy_all.tsv")
+#write_tsv(reactome_tbl,     "/home/zk27/apoe4/results/gsea_reactome_all.tsv")
+#write_tsv(gobp_tbl,         "/home/zk27/apoe4/results/gsea_gobp_all.tsv")
+#write_tsv(wikipathways_tbl, "/home/zk27/apoe4/results/gsea_wikipathways_all.tsv")
+
+hallmark_tbl <- read_tsv( "/home/zk27/apoe4/results/gsea_hallmark_all.tsv")
+kegg_legacy_tbl <- read_tsv("/home/zk27/apoe4/results/gsea_kegg_legacy_all.tsv")
+reactome_tbl <- read_tsv("/home/zk27/apoe4/results/gsea_reactome_all.tsv")
+gobp_tbl <- read_tsv("/home/zk27/apoe4/results/gsea_gobp_all.tsv")
+wikipathways_tbl <- read_tsv("/home/zk27/apoe4/results/gsea_wikipathways_all.tsv")
+```
+
+```{r making plots, fig.width= 28, fig.height=14}
+library(dplyr)
+library(ggplot2)
+library(forcats)
+gsea_tbl <- dplyr::bind_rows(
+  hallmark_tbl,
+  kegg_legacy_tbl,
+  reactome_tbl,
+  gobp_tbl,
+  wikipathways_tbl
+) %>%
+  mutate(
+    collection = factor(collection, 
+                        levels = c("Hallmark","KEGG_LEGACY","REACTOME","GO:BP","WikiPathways")),
+    direction  = if_else(NES >= 0, "Up", "Down"),
+    mlp        = -log10(padj + 1e-300)   # for plotting size if needed
+  )
+
+library(dplyr)
+library(ggplot2)
+library(forcats)
+library(tidyr)
+
+plot_top_pathways_ct_contrast <- function(gsea_tbl, cell_type, contrast, top_n = 10,
+                                          padj_cut = Inf) {
+  df <- gsea_tbl %>%
+    filter(cell_type == !!cell_type, contrast == !!contrast) %>%
+    filter(!is.na(NES), !is.na(padj)) %>%
+    mutate(direction = if_else(NES >= 0, "Up", "Down"))
+
+  if (!nrow(df)) {
+    message("No GSEA rows for: ", cell_type, " | ", contrast)
+    return(NULL)
+  }
+
+  # Optional significance filter
+  df <- df %>% filter(padj <= padj_cut)
+
+  # Take top_n per direction *and* per collection for a balanced panel
+  df_top <- df %>%
+    group_by(direction, collection) %>%
+    arrange(padj, desc(abs(NES)), .by_group = TRUE) %>%
+    slice_head(n = top_n) %>%
+    ungroup()
+
+  if (!nrow(df_top)) {
+    message("No pathways pass padj <= ", padj_cut, " for: ", cell_type, " | ", contrast)
+    return(NULL)
+  }
+
+  # Make pathway a character, then reorder safely
+  df_top <- df_top %>%
+    mutate(pathway = as.character(pathway)) %>%     # <-- key fix
+    mutate(pathway = fct_reorder(pathway, NES))     # reorder by NES within the plotted set
+
+  ggplot(df_top, aes(x = NES, y = pathway, fill = direction)) +
+    geom_col(alpha = 0.9) +
+    facet_wrap(~ collection, scales = "free_y") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "grey70") +
+    scale_fill_manual(values = c(Up = "#1B9E77", Down = "#D95F02")) +
+    labs(
+      title = paste0("Top pathways (", cell_type, " | ", contrast, ")"),
+      x = "Normalized Enrichment Score (NES)",
+      y = NULL, fill = NULL
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      panel.grid.minor = element_blank(),
+      panel.grid.major.y = element_blank(),
+      strip.text = element_text(face = "bold"),
+      legend.position = "top"
+    )
+}
+
+p <- plot_top_pathways_ct_contrast(gsea_tbl, "AST", "E4_GENUS - E4_Ctrl", top_n = 15)
+p
+ggsave('/home/zk27/apoe4/results/AST_e4_genus_ctrl.pdf',width= 28,height=14)
+
+DotPlot(apoe4_obj, features  = 'Adcy2', group.by = 'condition')
+
+#write_csv(gsea_tbl, '/home/zk27/apoe4/results/all_GSEA.csv')
+gsea_tbl <- read_csv('/home/zk27/apoe4/results/all_GSEA.csv')
+
+selected_gsea_tbl <- gsea_tbl%>%
+  dplyr::filter(cell_type == 'AST')%>%
+  dplyr::filter(contrast == 'E3_GENUS - E3_Ctrl')
+```
+
+```{r}
+library(dplyr)
+library(stringr)
+
+# set your target(s)
+target_pathway  <- "GOBP_ASTROCYTE_DEVELOPMENT"
+target_ct       <- "AST"                      # change if needed
+target_contrast <- "E3_GENUS - E3_Ctrl"      # match your label exactly
+
+row <- gsea_tbl %>%
+  filter(collection %in% c("GO:BP","GOBP"),
+         pathway == target_pathway,
+         cell_type == target_ct,
+         contrast == target_contrast) %>%
+  arrange(padj, pval) %>%
+  slice(1)   # pick best hit if duplicates
+
+# Extract leading-edge genes (handles list-column or comma string)
+leading_genes <-
+  if (is.list(row$leadingEdge)) {
+    unique(unlist(row$leadingEdge))
+  } else {
+    unique(str_split(row$leadingEdge, "\\s*,\\s*", simplify = FALSE)[[1]])
+  }
+
+leading_genes
+
+
+```
+
+
+
