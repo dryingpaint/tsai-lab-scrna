@@ -39,6 +39,7 @@ uv run python limma_voom_gsea.py
 ```
 
 **Why use uv?**
+
 - 🚀 **10-100x faster** than pip for package resolution and installation
 - 🔒 **Automatic dependency resolution** and conflict detection
 - 📦 **Built-in virtual environment management** - no need to manually activate/deactivate
@@ -54,6 +55,7 @@ uv run python cellbender_qc_annotation.py
 ```
 
 This script:
+
 - Loads CellBender-processed H5 files from multiple samples
 - Performs quality control filtering
 - Detects and removes doublets using Scrublet
@@ -69,6 +71,7 @@ uv run python limma_voom_gsea.py
 ```
 
 This script:
+
 - Loads the annotated data from Step 1
 - Calculates pathway module scores
 - Creates pseudobulk samples for differential expression
@@ -79,6 +82,7 @@ This script:
 ## Data Structure
 
 The scripts expect data in the following structure:
+
 ```
 base/
 ├── D25-2675/
@@ -91,12 +95,14 @@ base/
 ## Key Features
 
 ### Quality Control
+
 - Mitochondrial gene percentage calculation
 - Ribosomal gene percentage calculation
 - Doublet detection with Scrublet
 - Cell and gene filtering based on expression thresholds
 
 ### Cell Type Annotation
+
 - Automatic annotation based on marker genes
 - Support for major brain cell types:
   - Excitatory neurons (ExN)
@@ -109,6 +115,7 @@ base/
   - Vascular leptomeningeal cells (VLMC)
 
 ### Differential Expression
+
 - Pseudobulk aggregation by sample and cell type
 - Multiple contrast testing:
   - Treatment effects within genotypes
@@ -116,6 +123,7 @@ base/
 - False discovery rate correction
 
 ### Pathway Analysis
+
 - Module score calculation for pathway activity
 - Gene Set Enrichment Analysis (GSEA)
 - Support for multiple gene set databases:
@@ -133,20 +141,26 @@ base/
 ## Customization
 
 ### Modify file paths:
+
 Edit the `base_path` variable in `1_cellbender_qc_annotation.py`:
+
 ```python
 base_path = "/path/to/your/data/"
 ```
 
 ### Adjust filtering parameters:
+
 Modify QC thresholds in the `filter_cells_and_genes()` function:
+
 ```python
 adata = adata[adata.obs.n_genes_by_counts < 8000, :]  # Max genes per cell
 adata = adata[adata.obs.percent_mt < 10, :]           # Max MT percentage
 ```
 
 ### Add custom gene sets:
+
 Edit the `astrocyte_sets` dictionary in `2_limma_voom_gsea.py`:
+
 ```python
 astrocyte_sets = {
     'YOUR_PATHWAY': ['Gene1', 'Gene2', 'Gene3'],

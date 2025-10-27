@@ -4,28 +4,27 @@ Quality control utilities for single-cell RNA-seq analysis
 Handles QC metrics calculation, doublet detection, and filtering
 """
 
-import numpy as np
-import pandas as pd
 import scanpy as sc
 import matplotlib.pyplot as plt
 import scrublet as scr
+from utils.qc_filters import GENE_FILTERS, DOUBLET_PARAMS, GENE_PATTERNS
 
 
 def calculate_qc_metrics(adata):
     """Calculate QC metrics
-    
+
     Args:
         adata: AnnData object
-        
+
     Returns:
         AnnData object with QC metrics added
     """
     print("Calculating QC metrics...")
 
     # Mitochondrial genes
-    adata.var["mt"] = adata.var_names.str.startswith("mt-")
+    adata.var["mt"] = adata.var_names.str.startswith(GENE_PATTERNS["mt_pattern"])
     # Ribosomal genes
-    adata.var["ribo"] = adata.var_names.str.match(r"^Rp[sl]")
+    adata.var["ribo"] = adata.var_names.str.match(GENE_PATTERNS["ribo_pattern"])
 
     # Calculate QC metrics
     sc.pp.calculate_qc_metrics(
@@ -44,49 +43,87 @@ def calculate_qc_metrics(adata):
     return adata
 
 
-def plot_qc_metrics(adata):
+def plot_qc_metrics(adata, save_dir=None):
     """Plot QC metrics
-    
+
     Args:
         adata: AnnData object with QC metrics
+        save_dir: Directory to save plots (optional). If provided, plots are saved without display.
     """
     print("Plotting QC metrics...")
 
-    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+    # First figure: violin plots
+    # Use scanpy's native save functionality which works better
+    if save_dir:
+        # Configure scanpy figure directory temporarily
+        import os
 
-    # Violin plots
-    sc.pl.violin(
-        adata,
-        ["n_genes_by_counts", "total_counts"],
-        jitter=0.4,
-        multi_panel=True,
-        ax=axes[0],
-    )
+        original_figdir = sc.settings.figdir
+        sc.settings.figdir = str(save_dir)
 
-    sc.pl.violin(
-        adata, ["percent_mt", "percent_ribo"], jitter=0.4, multi_panel=True, ax=axes[1]
-    )
+        # Create violin plot with scanpy's save parameter
+        sc.pl.violin(
+            adata,
+            ["n_genes_by_counts", "total_counts", "percent_mt", "percent_ribo"],
+            jitter=0.05,
+            multi_panel=True,
+            show=False,
+            save="_violin.png",
+        )
 
-    plt.tight_layout()
-    plt.show()
+        # Rename the saved file
+        if (save_dir / "violin_violin.png").exists():
+            os.rename(save_dir / "violin_violin.png", save_dir / "qc_violin_plots.png")
+            print(f"  Saved: {save_dir}/qc_violin_plots.png")
 
-    # Scatter plots
+        # Restore original figure directory
+        sc.settings.figdir = original_figdir
+    else:
+        fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+        sc.pl.violin(
+            adata,
+            ["n_genes_by_counts", "total_counts"],
+            jitter=0.4,
+            multi_panel=True,
+            ax=axes[0],
+            show=False,
+        )
+        sc.pl.violin(
+            adata,
+            ["percent_mt", "percent_ribo"],
+            jitter=0.4,
+            multi_panel=True,
+            ax=axes[1],
+            show=False,
+        )
+        plt.tight_layout()
+        plt.show()
+
+    # Second figure: scatter plots
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
-    sc.pl.scatter(adata, x="total_counts", y="percent_mt", ax=axes[0])
-    sc.pl.scatter(adata, x="total_counts", y="n_genes_by_counts", ax=axes[1])
+    sc.pl.scatter(adata, x="total_counts", y="percent_mt", ax=axes[0], show=False)
+    sc.pl.scatter(
+        adata, x="total_counts", y="n_genes_by_counts", ax=axes[1], show=False
+    )
 
     plt.tight_layout()
-    plt.show()
+
+    if save_dir:
+        fig.savefig(save_dir / "qc_scatter_plots.png", dpi=300, bbox_inches="tight")
+        print(f"  Saved: {save_dir}/qc_scatter_plots.png")
+        plt.close(fig)
+    else:
+        plt.show()
 
 
 def detect_doublets_scrublet(adata, sample_col="orig.ident"):
     """Detect doublets using Scrublet for each sample
-    
+
     Args:
         adata: AnnData object
         sample_col: Column name for sample identification
-        
+
     Returns:
         AnnData object with doublet predictions added
     """
@@ -103,9 +140,14 @@ def detect_doublets_scrublet(adata, sample_col="orig.ident"):
         X_sample = adata[mask].X.copy()
 
         # Run Scrublet
-        scrub = scr.Scrublet(X_sample, expected_doublet_rate=0.06)
+        scrub = scr.Scrublet(
+            X_sample, expected_doublet_rate=DOUBLET_PARAMS["expected_doublet_rate"]
+        )
         doublet_scores_sample, predicted_doublets_sample = scrub.scrub_doublets(
-            min_counts=2, min_cells=3, min_gene_variability_pctl=85, n_prin_comps=30
+            min_counts=DOUBLET_PARAMS["min_counts"],
+            min_cells=DOUBLET_PARAMS["min_cells"],
+            min_gene_variability_pctl=DOUBLET_PARAMS["min_gene_variability_pctl"],
+            n_prin_comps=DOUBLET_PARAMS["n_prin_comps"],
         )
 
         doublet_scores.extend(doublet_scores_sample)
@@ -132,15 +174,26 @@ def detect_doublets_scrublet(adata, sample_col="orig.ident"):
     return adata
 
 
-def filter_cells_and_genes(adata, min_genes=200, max_genes=8000, max_mt_pct=10):
+def filter_cells_and_genes(
+    adata,
+    min_genes=200,
+    max_genes=8000,
+    max_mt_pct=10,
+    min_counts=None,
+    max_counts=None,
+    max_ribo_pct=None,
+):
     """Apply QC filtering
-    
+
     Args:
         adata: AnnData object
         min_genes: Minimum genes per cell
         max_genes: Maximum genes per cell
         max_mt_pct: Maximum mitochondrial percentage
-        
+        min_counts: Minimum total counts per cell (optional)
+        max_counts: Maximum total counts per cell (optional)
+        max_ribo_pct: Maximum ribosomal percentage (optional)
+
     Returns:
         Filtered AnnData object
     """
@@ -151,12 +204,22 @@ def filter_cells_and_genes(adata, min_genes=200, max_genes=8000, max_mt_pct=10):
     # Filter cells
     sc.pp.filter_cells(adata, min_genes=min_genes)  # Filter cells with too few genes
 
-    # Filter genes expressed in at least 10 cells
-    sc.pp.filter_genes(adata, min_cells=10)
+    # Filter genes expressed in at least min_cells
+    sc.pp.filter_genes(adata, min_cells=GENE_FILTERS["min_cells"])
 
     # Filter cells based on QC metrics
     adata = adata[adata.obs.n_genes_by_counts < max_genes, :]
     adata = adata[adata.obs.percent_mt < max_mt_pct, :]
+
+    # Optional count filters
+    if min_counts is not None:
+        adata = adata[adata.obs.total_counts >= min_counts, :]
+    if max_counts is not None:
+        adata = adata[adata.obs.total_counts <= max_counts, :]
+
+    # Optional ribosomal filter
+    if max_ribo_pct is not None:
+        adata = adata[adata.obs.percent_ribo < max_ribo_pct, :]
 
     # Remove predicted doublets
     adata = adata[~adata.obs.predicted_doublet, :]

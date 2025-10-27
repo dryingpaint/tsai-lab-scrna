@@ -5,7 +5,7 @@ date: "2025-09-10"
 ---
 
 ```{r,fig.width=4, fig.height=4}
-apoe4_obj <- readRDS('/home/zk27/apoe4/data/Annotated_cellbender_singlets_merged_qc.rds')
+apoe4_obj <- readRDS('/Users/melissadu/projects/tsai-lab-scrna/data/Annotated_cellbender_singlets_merged_qc.rds')
 apoe4_obj$condition <- paste0(apoe4_obj$Genotype, "_", apoe4_obj$Stimulation)
 apoe4_obj$condition <- factor(apoe4_obj$condition,
                                 levels = c("E3_Ctrl","E3_GENUS","E4_Ctrl","E4_GENUS"))
@@ -95,7 +95,7 @@ pheatmap(mat_clean,
 ```{r,fig.width=3, fig.height=4}
 library(msigdbr)
 library(dplyr)
-apoe4_obj <- readRDS('/home/zk27/apoe4/data/Annotated_cellbender_singlets_merged_qc.rds')
+apoe4_obj <- readRDS('/Users/melissadu/projects/tsai-lab-scrna/data/Annotated_cellbender_singlets_merged_qc.rds')
 apoe4_obj <- SCTransform(
   apoe4_obj,
   method = "glmGamPoi",

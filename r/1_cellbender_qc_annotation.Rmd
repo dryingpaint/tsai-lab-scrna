@@ -19,16 +19,16 @@ library(scDblFinder)
 ```{r read in cellbender output}
 library('scCustomize')
 
-cell_bender_merged <- Read_CellBender_h5_Multi_Directory(base_path = "/home/zk27/apoe4/data/output_10k/base/",
+cell_bender_merged <- Read_CellBender_h5_Multi_Directory(base_path = "/Users/melissadu/projects/tsai-lab-scrna/data/output_10k/base/",
     custom_name = "_processed_feature_bc_matrix_filtered.h5", sample_names = c("D25-2675", "D25-2676", "D25-2677", "D25-2678","D25-2679","D25-2680","D25-2681","D25-2682","D25-2683","D25-2684","D25-2685","D25-2686","D25-2687","D25-2688","D25-2689","D25-2690"), merge = TRUE)
 
 cell_bender_seurat <- CreateSeuratObject(counts = cell_bender_merged, names.field = 1, names.delim = "_")
 
-saveRDS(cell_bender_seurat, '/home/zk27/apoe4/data/cellbender_filtered_merged_objects.rds')
+saveRDS(cell_bender_seurat, '/Users/melissadu/projects/tsai-lab-scrna/data/cellbender_filtered_merged_objects.rds')
 ```
 
 ```{r}
-cell_bender_seurat <- readRDS( '/home/zk27/apoe4/data/cellbender_filtered_merged_objects.rds')
+cell_bender_seurat <- readRDS( '/Users/melissadu/projects/tsai-lab-scrna/data/cellbender_filtered_merged_objects.rds')
 
 apoe4_obj <- cell_bender_seurat
 apoe4_obj[["percent.mt"]] <- PercentageFeatureSet(
@@ -180,13 +180,13 @@ merged <- merge(
 )
 merged_joinend <- JoinLayers(merged)
 
-saveRDS(merged_joinend, "/home/zk27/apoe4/data/S1_cellbender_singlets_merged_qc.rds")
+saveRDS(merged_joinend, "/Users/melissadu/projects/tsai-lab-scrna/data/S1_cellbender_singlets_merged_qc.rds")
 ```
 
 
 
 ```{r qc, fig.width = 6, fig.height=4}
-merged_joinend <- readRDS("/home/zk27/apoe4/data/S1_cellbender_singlets_merged_qc.rds")
+merged_joinend <- readRDS("/Users/melissadu/projects/tsai-lab-scrna/data/S1_cellbender_singlets_merged_qc.rds")
 apoe4_obj_sketch <- merged_joinend
 cmat <- GetAssayData(apoe4_obj_sketch, assay = "RNA", layer = "counts")
 gene_counts <- Matrix::rowSums(cmat > 0)
@@ -328,9 +328,9 @@ DimPlot(
   cols = celltype_colors, pt.size = 0.01
 )
 
-saveRDS(apoe4_obj_sketch,'/home/zk27/apoe4/data/Annotated_cellbender_singlets_merged_qc.rds')
+saveRDS(apoe4_obj_sketch,'/Users/melissadu/projects/tsai-lab-scrna/data/Annotated_cellbender_singlets_merged_qc.rds')
 
-apoe4_obj_sketch <- readRDS('/home/zk27/apoe4/data/Annotated_cellbender_singlets_merged_qc.rds')
+apoe4_obj_sketch <- readRDS('/Users/melissadu/projects/tsai-lab-scrna/data/Annotated_cellbender_singlets_merged_qc.rds')
 
 apoe4_obj_sketch <- AddModuleScore(apoe4_obj_sketch, features = c("P2ry12","Tmem119","Cx3cr1","Csf1r","Sall1","Aif1"),name = 'microglia_score')
 

@@ -14,7 +14,7 @@ from pathlib import Path
 import scanpy as sc
 
 # Import our custom modules
-from utils.pathway_analysis import (
+from utils.pathway_anwalysis import (
     load_gene_sets,
     calculate_module_scores,
     plot_module_scores,
