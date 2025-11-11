@@ -7,7 +7,7 @@ name = "tsai-lab-scrna"
 version = "0.1.0"
 description = "Single-cell RNA-seq analysis pipeline for Tsai Lab"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [
     { name = "Tsai Lab", email = "your-email@example.com" }
@@ -19,10 +19,10 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
 ]
 
 dependencies = [
@@ -54,6 +54,8 @@ dependencies = [
     # For downloading gene sets
     "requests>=2.25.0",
     "scikit-misc>=0.2.0",
+    "ipykernel>=6.31.0",
+    "drive>=0.4.5",
 ]
 
 [project.optional-dependencies]
@@ -76,7 +78,7 @@ packages = ["utils"]
 
 [tool.black]
 line-length = 88
-target-version = ['py38', 'py39', 'py310', 'py311']
+target-version = ['py39', 'py310', 'py311', 'py312']
 include = '\.pyi?$'
 
 [tool.isort]
