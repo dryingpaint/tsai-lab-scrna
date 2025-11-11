@@ -235,3 +235,4 @@ Thumbs.db
 
 data/
 .git_backup_*/
+cell_annotation_colab/outputs/
