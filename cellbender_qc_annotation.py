@@ -30,7 +30,13 @@ from utils.processing import (
     run_pca_umap_clustering,
     plot_embeddings,
 )
-from utils.annotation import annotate_cell_types, plot_cell_type_summary
+from utils.annotation import (
+    annotate_cell_types,
+    plot_cell_type_summary,
+    compute_top_markers_per_cluster,
+    compare_top_markers_to_expected,
+    recluster_excit_inhib,
+)
 from utils.qc_filters import CELL_FILTERS, DOUBLET_PARAMS, get_filter_summary
 
 # Configure scanpy
@@ -124,11 +130,39 @@ def main(label_mode="cell", plots_dir_path="plots"):
     # Step 7: Normalize and scale
     adata = normalize_and_scale(adata)
 
-    # Step 8: PCA, UMAP, clustering
-    adata = run_pca_umap_clustering(adata, save_dir=plots_dir)
+    # Step 8: PCA, UMAP, clustering with automatic Leiden resolution selection
+    adata = run_pca_umap_clustering(
+        adata,
+        save_dir=plots_dir,
+        auto_resolution=True,
+        resolution_grid=[i / 10 for i in range(4, 13)],  # 0.4..1.2 step 0.1
+        n_pcs=15,
+    )
 
     # Step 9: Plot embeddings
     plot_embeddings(adata, save_dir=plots_dir)
+
+    # Compute and save top marker genes per cluster
+    compute_top_markers_per_cluster(
+        adata,
+        groupby="leiden",
+        method="wilcoxon",
+        n_top=30,
+        pval_adj_cutoff=0.05,
+        save_dir=plots_dir,
+        plot=True,
+    )
+
+    # Compare top markers to expected marker panels and save diagnostics
+    compare_top_markers_to_expected(
+        adata,
+        markers_df=None,  # read from adata.uns
+        groupby="leiden",
+        top_n=10,
+        panels=None,  # defaults to MARKER_GENES
+        save_dir=plots_dir,
+        plot=True,
+    )
 
     # Step 10: Visualize doublets on UMAP
     from utils.improved_doublet_detection import plot_doublet_scores_umap
@@ -146,6 +180,19 @@ def main(label_mode="cell", plots_dir_path="plots"):
 
     # Step 12: Plot cell type summary
     plot_cell_type_summary(adata, save_dir=plots_dir)
+
+    # Step 13: Re-cluster excitatory and inhibitory subsets and save UMAPs
+    adata = recluster_excit_inhib(
+        adata,
+        save_dir=plots_dir,
+        auto_resolution=True,
+        resolution_grid=[i / 10 for i in range(4, 13)],
+        n_top_genes=3000,
+        n_pcs=30,
+        n_neighbors=15,
+        random_state=0,
+        write_h5ad=False,
+    )
 
     # Save results
     output_path = "annotated_cellbender_data.h5ad"

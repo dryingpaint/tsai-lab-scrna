@@ -7,10 +7,11 @@ Handles marker gene analysis and cell type assignment
 import scanpy as sc
 import matplotlib.pyplot as plt
 import numpy as np
-
+from pathlib import Path
+from utils.processing import choose_leiden_resolution
 
 # Module-level constants: single sources of truth
-MARKER_GENES = {
+MARKER_GENES = {  # Try to find top 30 markers
     # General neuron/excitatory
     "Neuron": ["Snap25", "Rbfox3", "Syp"],
     "Excit": ["Slc17a7", "Camk2a", "Satb2"],
@@ -59,7 +60,7 @@ def plot_marker_genes(adata, save_dir=None):
     """
     # Plot marker genes
     available_markers = []
-    for cell_type, genes in s.items():
+    for cell_type, genes in MARKER_GENES.items():
         available = [g for g in genes if g in adata.var_names]
         available_markers.extend(available)
 
@@ -164,6 +165,159 @@ def annotate_cell_types(
         plt.close()
     else:
         plt.show()
+
+    return adata
+
+
+def _recluster_subset(
+    adata,
+    mask,
+    subset_name,
+    save_dir=None,
+    n_top_genes=3000,
+    n_pcs=30,
+    n_neighbors=15,
+    resolution=0.6,
+    auto_resolution=True,
+    resolution_grid=None,
+    random_state=0,
+    write_h5ad=False,
+):
+    """Re-cluster and UMAP a subset of cells and map labels back to parent AnnData.
+
+    Args:
+        adata: Parent AnnData (expects .raw to be set to full gene space).
+        mask: Boolean array-like for cells to include in the subset.
+        subset_name: Short name used in output keys/files (e.g., "excit", "inhib").
+        save_dir: Optional Path for saving plots/files.
+        n_top_genes: Number of HVGs to select within the subset.
+        n_pcs: Number of PCs to compute/use for neighbors.
+        n_neighbors: k for kNN graph.
+        resolution: Leiden resolution if auto_resolution is False.
+        auto_resolution: If True, sweep resolutions and pick robust choice.
+        resolution_grid: Optional list of resolutions for sweeping.
+        random_state: Random seed for UMAP.
+        write_h5ad: If True, write subset AnnData to disk.
+    """
+    if save_dir is not None:
+        save_dir = Path(save_dir)
+
+    # Build subset from raw (full gene space) if available
+    use_base = (
+        adata.raw.to_adata() if getattr(adata, "raw", None) is not None else adata
+    )
+    sub = use_base[np.asarray(mask)].copy()
+    if sub.n_obs == 0:
+        return adata  # nothing to do
+
+    # Subset-specific HVGs and processing
+    sc.pp.highly_variable_genes(sub, flavor="seurat_v3", n_top_genes=int(n_top_genes))
+    if "highly_variable" in sub.var:
+        sub = sub[:, sub.var["highly_variable"]].copy()
+    sc.pp.scale(sub, max_value=10)
+    sc.tl.pca(sub, n_comps=min(int(n_pcs), max(2, sub.n_vars - 1)), svd_solver="arpack")
+    sc.pp.neighbors(
+        sub,
+        n_neighbors=int(n_neighbors),
+        n_pcs=min(int(n_pcs), sub.obsm["X_pca"].shape[1]),
+    )
+
+    # Choose resolution if requested
+    chosen_res = float(resolution)
+    if auto_resolution:
+        chosen_res = choose_leiden_resolution(
+            sub,
+            resolution_grid=resolution_grid,
+            min_cluster_size=20,
+            save_dir="./plots/leiden_resolution_sweep/",
+        )
+        print(f"Chosen Leiden resolution: {chosen_res}")
+    sc.tl.leiden(sub, resolution=float(chosen_res), key_added=f"leiden_{subset_name}")
+
+    # UMAP for visualization
+    sc.tl.umap(sub, random_state=int(random_state))
+
+    # Plot and save
+    if save_dir is not None:
+        colors = [f"leiden_{subset_name}"]
+        if "celltype" in sub.obs:
+            colors.append("celltype")
+        sc.pl.umap(
+            sub,
+            color=colors,
+            legend_loc="right margin",
+            show=False,
+        )
+        plt.savefig(save_dir / f"umap_{subset_name}.png", dpi=300, bbox_inches="tight")
+        print(f"  Saved: {save_dir}/umap_{subset_name}.png")
+        plt.close()
+
+        if write_h5ad:
+            out_path = save_dir / f"subset_{subset_name}.h5ad"
+            sub.write(out_path)
+            print(f"  Saved: {out_path}")
+
+    # Map labels back to parent AnnData
+    col = f"leiden_{subset_name}"
+    if col not in adata.obs:
+        adata.obs[col] = np.nan
+    adata.obs.loc[sub.obs_names, col] = sub.obs[col].astype(str).values
+
+    return adata
+
+
+def recluster_excit_inhib(
+    adata,
+    save_dir=None,
+    auto_resolution=True,
+    resolution_grid=None,
+    n_top_genes=3000,
+    n_pcs=30,
+    n_neighbors=15,
+    random_state=0,
+    write_h5ad=False,
+):
+    """Re-cluster excitatory and inhibitory subsets and save UMAPs.
+
+    Adds `leiden_excit` and `leiden_inhib` to `adata.obs` for cells in each subset.
+    """
+    if "celltype" not in adata.obs:
+        return adata
+
+    ct = adata.obs["celltype"].astype(str)
+    exc_mask = ct.str.startswith(("ExN_", "Excit"))
+    inh_mask = ct.str.startswith(("InN_", "Inhib"))
+
+    # Run subsets
+    adata = _recluster_subset(
+        adata,
+        mask=exc_mask,
+        subset_name="excit",
+        save_dir=save_dir,
+        n_top_genes=n_top_genes,
+        n_pcs=n_pcs,
+        n_neighbors=n_neighbors,
+        resolution=0.6,
+        auto_resolution=auto_resolution,
+        resolution_grid=resolution_grid,
+        random_state=random_state,
+        write_h5ad=write_h5ad,
+    )
+
+    adata = _recluster_subset(
+        adata,
+        mask=inh_mask,
+        subset_name="inhib",
+        save_dir=save_dir,
+        n_top_genes=n_top_genes,
+        n_pcs=n_pcs,
+        n_neighbors=n_neighbors,
+        resolution=0.8,
+        auto_resolution=auto_resolution,
+        resolution_grid=resolution_grid,
+        random_state=random_state,
+        write_h5ad=write_h5ad,
+    )
 
     return adata
 
@@ -361,3 +515,186 @@ def plot_cell_type_summary(adata, save_dir=None):
     # Print summary table
     print("\nCell type summary:")
     print(adata.obs["celltype"].value_counts().sort_index())
+
+
+def compute_top_markers_per_cluster(
+    adata,
+    groupby="leiden",
+    method="wilcoxon",
+    n_top=30,
+    pval_adj_cutoff=None,
+    save_dir=None,
+    plot=False,
+):
+    """Compute top marker genes per cluster using differential expression.
+
+    Args:
+        adata: AnnData object with clustering results.
+        groupby: Column in adata.obs to group by (default: "leiden").
+        method: DE method passed to scanpy (e.g., "wilcoxon", "t-test").
+        n_top: Number of top genes to rank per group.
+        pval_adj_cutoff: Optional adjusted p-value cutoff to filter results.
+        save_dir: Optional Path to save a CSV summary and optional plots.
+        plot: If True, create a rank_genes_groups plot (saved if save_dir provided).
+
+    Returns:
+        Pandas DataFrame with ranked markers across all groups.
+    """
+    if groupby not in adata.obs:
+        raise KeyError(f"Groupby key '{groupby}' not found in adata.obs")
+
+    sc.tl.rank_genes_groups(
+        adata,
+        groupby=groupby,
+        method=method,
+        n_genes=int(n_top),
+        pts=True,
+    )
+
+    markers_df = sc.get.rank_genes_groups_df(adata, None)
+    # Ensure consistent columns exist across scanpy versions
+    if "pvals_adj" in markers_df.columns and pval_adj_cutoff is not None:
+        markers_df = markers_df[markers_df["pvals_adj"] <= float(pval_adj_cutoff)]
+
+    if save_dir is not None:
+        out_csv = save_dir / "top_markers_by_cluster.csv"
+        markers_df.to_csv(out_csv, index=False)
+        print(f"  Saved: {out_csv}")
+
+    if plot:
+        sc.pl.rank_genes_groups(adata, n_genes=min(n_top, 20), sharey=False, show=False)
+        if save_dir is not None:
+            out_png = save_dir / "top_markers_ranked.png"
+            plt.savefig(out_png, dpi=300, bbox_inches="tight")
+            print(f"  Saved: {out_png}")
+            plt.close()
+        else:
+            plt.show()
+
+    return markers_df
+
+
+def compare_top_markers_to_expected(
+    adata,
+    markers_df=None,
+    groupby="leiden",
+    top_n=10,
+    panels=None,
+    save_dir=None,
+    plot=True,
+):
+    """Compare top DE genes per cluster with expected marker panels.
+
+    Builds overlap metrics between each cluster's top-N DE genes and each
+    expected marker gene panel.
+
+    Args:
+        adata: AnnData with DE results in .uns["rank_genes_groups"] or provide markers_df.
+        markers_df: Optional DataFrame from sc.get.rank_genes_groups_df(adata, None).
+        groupby: Cluster column used for DE (default: "leiden").
+        top_n: Number of top genes per cluster to evaluate.
+        panels: Optional dict mapping panel name -> list of genes. Defaults to MARKER_GENES.
+        save_dir: Optional Path to write CSVs and heatmap.
+        plot: If True, save a heatmap of precision (overlap/top_n).
+
+    Returns:
+        A tuple of (long_df, precision_matrix) where long_df is a list of dicts
+        usable as rows for a DataFrame, and precision_matrix is a dict of
+        {group: {panel: precision}}.
+    """
+    if panels is None:
+        panels = MARKER_GENES
+
+    # Make sets for faster overlap
+    panel_to_genes = {k: set(v) for k, v in panels.items()}
+
+    # Acquire ranked genes per group
+    if markers_df is None:
+        markers_df = sc.get.rank_genes_groups_df(adata, None)
+
+    # Determine sort key preference
+    sort_key = (
+        "scores"
+        if "scores" in markers_df.columns
+        else ("logfoldchanges" if "logfoldchanges" in markers_df.columns else None)
+    )
+    if sort_key is None:
+        raise KeyError("markers_df must contain 'scores' or 'logfoldchanges' column")
+
+    # Build top-N gene sets per group
+    var_names = set(adata.var_names)
+    groups = sorted(markers_df["group"].unique())
+    group_to_top = {}
+    for g in groups:
+        sub = markers_df[markers_df["group"] == g]
+        sub = sub.sort_values(sort_key, ascending=False).head(int(top_n))
+        genes = [nm for nm in sub["names"].tolist() if nm in var_names]
+        group_to_top[g] = set(genes)
+
+    # Compute overlaps
+    long_rows = []
+    precision_matrix = {g: {} for g in groups}
+    for g in groups:
+        top_set = group_to_top[g]
+        for panel_name, panel_genes in panel_to_genes.items():
+            overlap = len(top_set & panel_genes)
+            precision = overlap / max(1, len(top_set))
+            recall = overlap / max(1, len(panel_genes))
+            denom = len(top_set | panel_genes)
+            jaccard = overlap / max(1, denom)
+            long_rows.append(
+                {
+                    "group": g,
+                    "panel": panel_name,
+                    "overlap": overlap,
+                    "top_n": len(top_set),
+                    "panel_size": len(panel_genes),
+                    "precision": precision,
+                    "recall": recall,
+                    "jaccard": jaccard,
+                }
+            )
+            precision_matrix[g][panel_name] = precision
+
+    # Optional outputs
+    if save_dir is not None:
+        try:
+            import pandas as _pd  # Local import to avoid hard dependency elsewhere
+
+            long_df = _pd.DataFrame(long_rows)
+            out_csv = save_dir / "expected_marker_overlap_long.csv"
+            long_df.to_csv(out_csv, index=False)
+            print(f"  Saved: {out_csv}")
+
+            # Pivot to matrix for heatmap
+            mat = long_df.pivot(index="group", columns="panel", values="precision")
+            out_mat = save_dir / "expected_marker_overlap_matrix_precision.csv"
+            mat.to_csv(out_mat)
+            print(f"  Saved: {out_mat}")
+
+            if plot:
+                fig, ax = plt.subplots(
+                    figsize=(
+                        max(6, len(mat.columns) * 0.6),
+                        max(4, len(mat.index) * 0.4),
+                    )
+                )
+                im = ax.imshow(
+                    mat.values, aspect="auto", cmap="viridis", vmin=0, vmax=1
+                )
+                ax.set_xticks(range(len(mat.columns)))
+                ax.set_xticklabels(mat.columns, rotation=45, ha="right")
+                ax.set_yticks(range(len(mat.index)))
+                ax.set_yticklabels(mat.index)
+                ax.set_title("Precision: overlap of top-N vs expected markers")
+                cbar = fig.colorbar(im, ax=ax)
+                cbar.set_label("precision (overlap/top_n)")
+                plt.tight_layout()
+                out_png = save_dir / "expected_marker_overlap_heatmap.png"
+                plt.savefig(out_png, dpi=300, bbox_inches="tight")
+                print(f"  Saved: {out_png}")
+                plt.close(fig)
+        except Exception as e:
+            print(f"Warning: could not write overlap CSVs/plot: {e}")
+
+    return long_rows, precision_matrix

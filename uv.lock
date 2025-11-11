@@ -4214,6 +4214,100 @@ wheels = [
 ]
 
 [[package]]
+name = "scikit-misc"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.9' and sys_platform == 'win32'",
+    "python_full_version < '3.9' and sys_platform != 'win32'",
+]
+dependencies = [
+    { name = "numpy", version = "1.24.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d1/84/aab9f9137ca60947016ca46e3b6cc64511195d949c32095e900716d9432a/scikit_misc-0.2.0.tar.gz", hash = "sha256:ac14dd4e935e442fc34ab1c583b6611d4603d06f48828a85c7e03e2c2c582bbc", size = 247897 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/05/87/c48c81a93920c9992658ba325fa1c961cdbd1942c3292d4d604aceb23a21/scikit_misc-0.2.0-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:b0cb9707c40f0fb51db45750cb90d5d9fc84d70eb6b87a299cc1c8791a09c072", size = 13622720 },
+    { url = "https://files.pythonhosted.org/packages/96/c7/ab06f992feabf6fb48259817a478c6b537d4a0c45b153012ab95882a549a/scikit_misc-0.2.0-cp310-cp310-macosx_12_0_arm64.whl", hash = "sha256:2fd3b3f3a8677111b8fff3007eb3feb4f4f6d5e7f5e91e80ad06928b03b55a8e", size = 8252441 },
+    { url = "https://files.pythonhosted.org/packages/cf/f5/cceacf08082b34da85fc10b2ee8ba1c5e408f5ecd23c8cb98adf612d34f5/scikit_misc-0.2.0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:682710b5e2a48c40e5ef7a94f57571a7a34fff744339473e0abc40d1b5d7a07a", size = 10682589 },
+    { url = "https://files.pythonhosted.org/packages/2d/6a/a29718a651c23ab5b945ffb637dd68a2c556d3b8ba70ad7069f571537b07/scikit_misc-0.2.0-cp310-cp310-win_amd64.whl", hash = "sha256:9013b6dd7039288b89acdcf34f169cfd7de3fb18e398e3b04f461aab108bcc32", size = 9869958 },
+    { url = "https://files.pythonhosted.org/packages/0d/14/485e7e28c97eee8ff22e57fc7278f9963881788839202de06545a147b76a/scikit_misc-0.2.0-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:023624b9c7db2655bd352add228b0d1a9d1b249cc8e4be6c97d6120a1c998bf6", size = 13622700 },
+    { url = "https://files.pythonhosted.org/packages/6c/63/46f42c98ffade48a62af2355ab1921ecb0ce1a46689568ef17c49e579ed6/scikit_misc-0.2.0-cp311-cp311-macosx_12_0_arm64.whl", hash = "sha256:77fec1644dc024496cb57b92df4fd48807a246343b0e3bbacd2cc2a019bd272a", size = 8251851 },
+    { url = "https://files.pythonhosted.org/packages/6e/27/38be8f3b70803f7a9e6c06ea3476cf0b01b5764ae75c8d956d784bf28c76/scikit_misc-0.2.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0632a61d63c7636d1a2b82b5aeb0b6dbd135be112b42030a82e201b9419849e1", size = 10679155 },
+    { url = "https://files.pythonhosted.org/packages/51/a9/ec081199f8e4b2f2b25c3074ea8afbe5ce0ec47dca43261a44e6e3118f1b/scikit_misc-0.2.0-cp311-cp311-win_amd64.whl", hash = "sha256:16aa63c78898c2ee771136aa9aa13d36e7f766f3089551709136654b48dd36f1", size = 9865106 },
+    { url = "https://files.pythonhosted.org/packages/c3/20/b670d08831d79d2257f9821d80ecdbd7b311743b886e8c49b04054e9367a/scikit_misc-0.2.0-cp38-cp38-macosx_10_9_x86_64.whl", hash = "sha256:6e80977662c679e01abf4aa36b3d7808c48162a532e10791ce88e61dcdaa0bed", size = 13620309 },
+    { url = "https://files.pythonhosted.org/packages/12/c7/00684e6f9bff31af84d12f54521f07e9e0b424b1e84564be545019c2af1f/scikit_misc-0.2.0-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:fea8b86e7c17478d16b227e450ed9db337d9f05a3e7d38af2ea2daa1fa5dbd99", size = 10686281 },
+    { url = "https://files.pythonhosted.org/packages/61/04/197be3f29ddcec5142435025637d977f58237ff79085b9f31ef1031e28e0/scikit_misc-0.2.0-cp38-cp38-win_amd64.whl", hash = "sha256:603fd4bd2e165128760f62459dd297bc98c7f1a9bceccd8188aa0563cde64e60", size = 9872634 },
+    { url = "https://files.pythonhosted.org/packages/e0/b1/3b051f1fd9472063806a23a7846707f8645746eb25bf3ea6b04accad940c/scikit_misc-0.2.0-cp39-cp39-macosx_10_9_x86_64.whl", hash = "sha256:5c71ee5711848a2d6a6a6a1e27a99b1e2af065427635e990f47504e20cd84b32", size = 13624129 },
+    { url = "https://files.pythonhosted.org/packages/f3/2b/4c903e072ae280ee315a460f002613d90f26711b50b756c9a33fea575347/scikit_misc-0.2.0-cp39-cp39-macosx_12_0_arm64.whl", hash = "sha256:6b25482460c43cb614e852afd84a42cc3e0e9bf346d1e18570038ca5c20889d7", size = 8253464 },
+    { url = "https://files.pythonhosted.org/packages/b4/16/5db7f88bd78da30d449f648628feddb09d706099d2ae377eabbf2554a6be/scikit_misc-0.2.0-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ba264c1e9aa86e29cf3e77de18d3c08223105d1165e848c69e5586a8da29158c", size = 10683927 },
+    { url = "https://files.pythonhosted.org/packages/01/2c/08ff16d1dc2ae6c7242eda19b28b96b487c34a569fd4611e35b362173942/scikit_misc-0.2.0-cp39-cp39-win_amd64.whl", hash = "sha256:e4342582fb57987efc49f3fdf329c4f4edd08d9938e76dc4916b3df55ba4aa4c", size = 9872532 },
+]
+
+[[package]]
+name = "scikit-misc"
+version = "0.3.1"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version == '3.9.*'",
+]
+dependencies = [
+    { name = "numpy", version = "2.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.9.*'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9c/05/ba0d80d5e4139407e2850d61269f8f1ae5f5bb19366dc5cab082f08b9b74/scikit_misc-0.3.1.tar.gz", hash = "sha256:ba813a005ab681df478d719d3c3f03eeda709b6a45e0c1a0056eaef0495c16e4", size = 302990 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/31/fd/0b1db36d6c785a388ada9487fd9933b79939abad69b331f1215537733e6d/scikit_misc-0.3.1-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:60ec5d45f22c7a698624c217c17966c2c17cf519653c0dfb0ad5a9f8923f18ff", size = 13726785 },
+    { url = "https://files.pythonhosted.org/packages/f8/45/ff62cc5c3c615d27d8ddfd9de5d99e436588eb1328e7770e5b1a125b78a8/scikit_misc-0.3.1-cp310-cp310-macosx_12_0_arm64.whl", hash = "sha256:06cb8271fb09abf2d7b6b793417258b570afd6e977014f3b6725702eca236e26", size = 8333642 },
+    { url = "https://files.pythonhosted.org/packages/31/07/38b5ae87ba39f133860dd14ccfa26192fafb641ece632c36a535c5ae3736/scikit_misc-0.3.1-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:20c6efbce6c86a754c6337a726ccbb62f012ad36e59a0d1edcb79300dc855994", size = 10794838 },
+    { url = "https://files.pythonhosted.org/packages/74/92/18277aa2fc3a0c82dd442e618b201e8f5182f1ad7e4ebc9107ca86996d9a/scikit_misc-0.3.1-cp310-cp310-win_amd64.whl", hash = "sha256:ac4d3ccd5c06e63a8a17b2c3f96e2089ece7a92d09482eeec844a7a7f17cd072", size = 9972014 },
+    { url = "https://files.pythonhosted.org/packages/ac/3c/b2fae72436c8fdaa93259e1c9e1855c592824fbc37b98fcb592990ff7661/scikit_misc-0.3.1-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:344a70047fd54bac3ec6f97c43710272c61439ccfb85a94db13df86b638b3a77", size = 13726982 },
+    { url = "https://files.pythonhosted.org/packages/46/bc/9be1ee28c7783684964eaa899f542b271dd42a612f0d1a2e1aa17ac1267a/scikit_misc-0.3.1-cp311-cp311-macosx_12_0_arm64.whl", hash = "sha256:7d6c5db18ab52e91d62ece81235a41d4515031b00b2c6a9ff663c3f6bef5a30c", size = 8333620 },
+    { url = "https://files.pythonhosted.org/packages/13/27/587e4824e229d963a63d481576383b4edbb5bade28c2d17bbdb6677252dc/scikit_misc-0.3.1-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f222487ec2afd92a8adce8d1ad985f832c8e95ae69f210025f12acec9cff0b1b", size = 10794616 },
+    { url = "https://files.pythonhosted.org/packages/86/32/568cb46ec933c7c71242f454bd87fc377af680b96db925903c94b166d988/scikit_misc-0.3.1-cp311-cp311-win_amd64.whl", hash = "sha256:119a10809beea11b08db86c1e8447ef1588a71ed0064befe714ae18100acfd11", size = 9971331 },
+    { url = "https://files.pythonhosted.org/packages/2f/2a/f274928fc1b9fd5bbe130e1325717579a7962aa95c702c501d94a0711407/scikit_misc-0.3.1-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:e6a56afb44db218c816620a05363f7fd63af09414a4d99b2bf7abf602771e500", size = 13728473 },
+    { url = "https://files.pythonhosted.org/packages/f6/95/78d95e80b3137f96419ca80bacdc21ab268404ea29c9d83ed586fe24c8c2/scikit_misc-0.3.1-cp312-cp312-macosx_12_0_arm64.whl", hash = "sha256:237f23cbf24bd4b41820bf224418f2c4e4a862c1e039990bf7cb22f7d71b4898", size = 8334720 },
+    { url = "https://files.pythonhosted.org/packages/94/65/04137ceaa50b00b0c590765d7e53bba0a5b0747d001200f3b23ddc3cf046/scikit_misc-0.3.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:432194fc764c5a89422a2366db5b46bbb8a5be35eb6ce871dbc688c833ef941c", size = 10789982 },
+    { url = "https://files.pythonhosted.org/packages/c1/3b/e0a801b3555fce0a9b4d8ff970c29460ca7b05890eecc554c6704870ca50/scikit_misc-0.3.1-cp312-cp312-win_amd64.whl", hash = "sha256:df0ba6f41ea4e96c91b49264231842604d1209a0d6719d02fd52ef70c88c1c95", size = 9970265 },
+    { url = "https://files.pythonhosted.org/packages/ab/ea/100b9ba28e8ee9d4d714f793f41f093910c8cb24a8e0fe0c19a6d44e3d74/scikit_misc-0.3.1-cp39-cp39-macosx_10_9_x86_64.whl", hash = "sha256:6d7e33ad42c24a47a84c724b504c55068a3d8d78d9b46bbd4f72050336bd41bb", size = 13727433 },
+    { url = "https://files.pythonhosted.org/packages/2f/05/48cf4d377babe859e0d48215b99234cea5dafa6becd6c46466008fceddb7/scikit_misc-0.3.1-cp39-cp39-macosx_12_0_arm64.whl", hash = "sha256:356f3fe84a4946eaccf7caf4527fb18e0c20ea60c85c324ca02cd1e74172aa07", size = 8334216 },
+    { url = "https://files.pythonhosted.org/packages/36/1d/fb5c4fcc33f7d0bb109db36e371f625970a4b33e1fa97646be820710b9b5/scikit_misc-0.3.1-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:98dea6a1c346ede53883ab3f1be8469e0c126c95c9ca8991d0df6707deeca93a", size = 10795318 },
+    { url = "https://files.pythonhosted.org/packages/54/ef/7376fc1a1520930f55d4b509624b4fdb6e295b3d86b0dc292d4ea178d511/scikit_misc-0.3.1-cp39-cp39-win_amd64.whl", hash = "sha256:9fd7f95c114bc91c0b81d3d3814186d7c39ea86bffca9761e8da1e15d7327c4b", size = 9973180 },
+]
+
+[[package]]
+name = "scikit-misc"
+version = "0.5.1"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.12'",
+    "python_full_version == '3.11.*'",
+    "python_full_version == '3.10.*'",
+]
+dependencies = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
+    { name = "numpy", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/09/c5/87ff89128cf05f560ba70c762f8d6cb79011054ea5d5d6e21fa5fc2f6ce7/scikit_misc-0.5.1.tar.gz", hash = "sha256:c5c1f69ac5f84e0103f40525c7d28ecc0ee028314cbc9f07c497cc39143e52a3", size = 298630 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/29/fa/ab5b20be6223895c0eaf762888ba552a29e160247cd7e2b2a62717a91fb8/scikit_misc-0.5.1-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:b68d9fc6c71471256b7dedc5ddb7927d3dd874a90260e80662f0f78087bf78c1", size = 169913 },
+    { url = "https://files.pythonhosted.org/packages/cd/3e/e147be0c2ec70f55370c276e730379ae2b0d38feccdd9c242ef8f1d20422/scikit_misc-0.5.1-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:b2a77003b5a6ae4b608900a6ad30caf4fffa52001abd730dde196b789ef30b8b", size = 161811 },
+    { url = "https://files.pythonhosted.org/packages/00/73/d1fa42edfd1c9100364e40852cf41e20979b10aeb36ca9dd91a4dae04a7c/scikit_misc-0.5.1-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:c4f983014e2ae971d30379e7f0204a90dbca96f726d33ed7d19de3a69ddee4f8", size = 188804 },
+    { url = "https://files.pythonhosted.org/packages/8e/af/7812181e96f4e5235d1029e52c736e1c4afa4e2040ffe3acbc32f56b74b8/scikit_misc-0.5.1-cp310-cp310-win_amd64.whl", hash = "sha256:17e5cb78422ed75a39904f4cd57ae545ae15b2e83c807ca59b2634e8ed9d2f4d", size = 156896 },
+    { url = "https://files.pythonhosted.org/packages/d9/ff/fa5c1f0bf258d2e8dc6cda975d9c72cbc35a4da347057593cd04d93e9621/scikit_misc-0.5.1-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:ab7ee6c79ad16e5fc2db80b55fd35da91fccfc65ba40596a85069e1e241ae20e", size = 170414 },
+    { url = "https://files.pythonhosted.org/packages/69/fe/413049c52d04236bb23c6d852d10e7033f6957caf6252922490d10afe33d/scikit_misc-0.5.1-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:496a65c0ed0903deca80aa641102f3d8dca1acd2ed5fafc98d2101e7bbbfde90", size = 161857 },
+    { url = "https://files.pythonhosted.org/packages/14/6b/93b07eb8e355467243a1518d9501fb60f1b65add98a5a0c327c7ab9b7e31/scikit_misc-0.5.1-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:bd9a12ab92725b69eccacff033179597d46b4c45378eb127d8db400236ee6aae", size = 188964 },
+    { url = "https://files.pythonhosted.org/packages/98/7a/0ef8646dac8bcac7151c5dd3e604a33c497d6d093f4db538e25656144394/scikit_misc-0.5.1-cp311-cp311-win_amd64.whl", hash = "sha256:cf4a26d901157fa820a2da5b15ddc8aef18d6c17395f18b5cf5cc9663b81aac3", size = 157243 },
+    { url = "https://files.pythonhosted.org/packages/a5/bd/25d2295e052b939e131352d2572875c7d8cc4873c90d74e3cb6fcfed5c3b/scikit_misc-0.5.1-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:266ff5f0eb4889eb9ec5d9c94e1900d93b8b96500c3b120134bff04cd986e8ad", size = 170069 },
+    { url = "https://files.pythonhosted.org/packages/81/f0/047b2b1742c679327d49a16e7c7cf4acfc8e66126ff45a1ced72514961df/scikit_misc-0.5.1-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:e036e0f57cb7317ef7499497d2c0506274eb1b18513d54fe188c9e5619e3cef3", size = 170091 },
+    { url = "https://files.pythonhosted.org/packages/49/01/e2886b471a8a3dbf8292cbb1ef133e3fc727850b88caaefde3529fdd9b42/scikit_misc-0.5.1-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:34aa6f468234be81f70374bc22b1ec159991c72148ea664308c2b194d7255a95", size = 161862 },
+    { url = "https://files.pythonhosted.org/packages/6d/7c/014980a1b5fe2ee990c222ae5c9b1602fe7b64359643319123d8e1df5009/scikit_misc-0.5.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8237509cbb1c4420d99d2d3cccfde8a2ca45ca6ea86fbd17516e5d6a0867d8b4", size = 183556 },
+    { url = "https://files.pythonhosted.org/packages/63/2e/1da9f27515bdb92364bc5a8796b8e7d10e7b1f667b722681c5ceae168854/scikit_misc-0.5.1-cp312-cp312-win_amd64.whl", hash = "sha256:fd350ade48b79b930d8d7bdc8bd659349193afc319cb34f2ddbedada6f2464e0", size = 157041 },
+    { url = "https://files.pythonhosted.org/packages/15/55/72c6f3c9862d95e51d96477fd1fe4c88f9a73149f1f500b3110da49e5341/scikit_misc-0.5.1-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:1132a5b1fe249791afea00a6454e0ef921883f1c40af4a3bd7648aa78e6d1b27", size = 168736 },
+    { url = "https://files.pythonhosted.org/packages/98/4a/e51722b0f18301451472b0857fc6e043f4c8826aee709ed82589e62318d6/scikit_misc-0.5.1-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:718873b355ab4b78e167c7a27a3f413e00f54a2399ec1a68050016273d03f0f5", size = 160743 },
+    { url = "https://files.pythonhosted.org/packages/43/12/f899915eca292018e1174767e6d8aa2a260ce9f211a4708b775829008f3a/scikit_misc-0.5.1-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:fdccf8bf3588f95c0dc38098456740e5939614b697ce041951f4a20df56034f0", size = 182952 },
+    { url = "https://files.pythonhosted.org/packages/4f/ff/a02130345fed22b9bd8fb1769fc39b35d54ef17c5193d6d879878cc2357d/scikit_misc-0.5.1-cp313-cp313-win_amd64.whl", hash = "sha256:5d7b7dceb88bebd09faa57bf2162d98da806d384d6b904529e695f291fba8691", size = 156451 },
+]
+
+[[package]]
 name = "scipy"
 version = "1.10.1"
 source = { registry = "https://pypi.org/simple" }
@@ -5359,6 +5453,9 @@ dependencies = [
     { name = "scikit-learn", version = "1.3.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "scikit-learn", version = "1.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.9.*'" },
     { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "scikit-misc", version = "0.2.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "scikit-misc", version = "0.3.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.9.*'" },
+    { name = "scikit-misc", version = "0.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "scipy", version = "1.10.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "scipy", version = "1.13.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.9.*'" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
@@ -5398,6 +5495,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.25.0" },
     { name = "scanpy", specifier = ">=1.9.0" },
     { name = "scikit-learn", specifier = ">=1.0.0" },
+    { name = "scikit-misc", specifier = ">=0.2.0" },
     { name = "scipy", specifier = ">=1.7.0" },
     { name = "scrublet", specifier = ">=0.2.3" },
     { name = "scvelo", specifier = ">=0.2.4" },
