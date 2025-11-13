@@ -144,15 +144,25 @@ def assign_major_celltypes_by_scores(adata, marker_genes=MARKER_GENES, margin=0.
     
     Uses a two-stage approach to avoid subtype markers overwhelming major type assignment:
     1. Stage 1: Score only major types (Excit, Inhib, Astro, etc.) - no subtypes
+       - ALL cells assigned to best-scoring major type
+       - Cells with (best - second_best) >= margin marked as "high" confidence
+       - Remaining cells marked as "low" confidence
     2. Stage 2: Within Excit cells, score ExN subtypes; within Inhib cells, score InN subtypes
+       - ALL cells assigned to best-scoring subtype
+       - Confidence updated based on subtype score margin
     
     This prevents having 12 ExN subtypes compete against 1 Inhib label.
 
     Args:
         adata: AnnData object
         marker_genes: Dictionary of cell type markers
-        margin: Confidence margin between top and second-best scores
+        margin: Confidence margin between top and second-best scores (default: 0.05)
         major_labels: List of major cell type labels to score in stage 1
+        
+    Creates columns:
+        celltype: Major cell type (Excit, Inhib, Astro, etc.)
+        celltype_detail: Detailed subtype (ExN_L5_IT, InN_SST, etc.)
+        annotation_confidence: "high" or "low" based on score margin
     """
     use_raw = getattr(adata, "raw", None) is not None and adata.raw is not None
     var_names = adata.raw.var_names if use_raw else adata.var_names
@@ -188,13 +198,23 @@ def assign_major_celltypes_by_scores(adata, marker_genes=MARKER_GENES, margin=0.
     # Initialize celltype columns
     adata.obs["celltype"] = np.nan
     adata.obs["celltype_detail"] = np.nan
+    adata.obs["annotation_confidence"] = "unassigned"
     
     # Assign major types to confident cells
     adata.obs.loc[confident, "celltype"] = winners[confident]
     adata.obs.loc[confident, "celltype_detail"] = winners[confident]
+    adata.obs.loc[confident, "annotation_confidence"] = "high"
     
-    print(f"  ✓ Assigned {confident.sum():,} / {len(confident):,} cells ({confident.sum()/len(confident)*100:.1f}%)")
-    print(f"     Unlabeled (low confidence): {(~confident).sum():,}")
+    # Fallback: assign remaining cells to best-scoring type (even if low confidence)
+    low_confidence = ~confident
+    if low_confidence.sum() > 0:
+        adata.obs.loc[low_confidence, "celltype"] = winners[low_confidence]
+        adata.obs.loc[low_confidence, "celltype_detail"] = winners[low_confidence]
+        adata.obs.loc[low_confidence, "annotation_confidence"] = "low"
+    
+    print(f"  ✓ High confidence: {confident.sum():,} cells ({confident.sum()/len(confident)*100:.1f}%)")
+    print(f"  ✓ Low confidence: {low_confidence.sum():,} cells ({low_confidence.sum()/len(confident)*100:.1f}%)")
+    print(f"  ✓ Total assigned: {len(confident):,} cells (100%)")
     
     # STAGE 2: Refine Excit and Inhib with subtypes
     print("\nStage 2: Refining neuronal subtypes...")
@@ -266,13 +286,25 @@ def _refine_subtypes(adata, mask, prefix, marker_genes, margin, use_raw, var_nam
     labels = np.array([c.replace("score_", "") for c in score_cols])
     winners = labels[top_idx]
     
-    # Update celltype_detail for confident cells
+    # Update celltype_detail for ALL cells (high and low confidence)
     mask_indices = np.where(mask)[0]
+    
+    # High confidence cells
     confident_indices = mask_indices[confident]
     adata.obs.loc[adata.obs.index[confident_indices], "celltype_detail"] = winners[confident]
+    adata.obs.loc[adata.obs.index[confident_indices], "annotation_confidence"] = "high"
+    
+    # Low confidence cells - still assign best subtype
+    low_conf = ~confident
+    if low_conf.sum() > 0:
+        low_conf_indices = mask_indices[low_conf]
+        adata.obs.loc[adata.obs.index[low_conf_indices], "celltype_detail"] = winners[low_conf]
+        # Keep their confidence as "low" from Stage 1, or set to "low" if was "high"
+        current_conf = adata.obs.loc[adata.obs.index[low_conf_indices], "annotation_confidence"]
+        adata.obs.loc[adata.obs.index[low_conf_indices], "annotation_confidence"] = "low"
     
     major_type = "Excit" if prefix == "ExN" else "Inhib"
-    print(f"  {major_type}: {confident.sum():,} / {mask.sum():,} cells refined to subtypes")
+    print(f"  {major_type}: {confident.sum():,} high confidence, {low_conf.sum():,} low confidence subtypes ({mask.sum():,} total)")
 
 
 def assign_major_celltypes_by_cluster_scores(adata, marker_genes=MARKER_GENES, margin=0.05, agg="median", include_subtypes=True):
