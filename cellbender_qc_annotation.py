@@ -32,10 +32,12 @@ from utils.processing import (
 )
 from utils.annotation import (
     annotate_cell_types,
+)
+from utils.recluster import recluster_excit_inhib
+from utils.cell_type import (
     plot_cell_type_summary,
     compute_top_markers_per_cluster,
     compare_top_markers_to_expected,
-    recluster_excit_inhib,
 )
 from utils.qc_filters import CELL_FILTERS, DOUBLET_PARAMS, get_filter_summary
 
