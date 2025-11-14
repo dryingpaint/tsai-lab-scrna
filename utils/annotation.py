@@ -7,6 +7,7 @@ Handles marker gene analysis and cell type assignment
 import scanpy as sc
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from pathlib import Path
 from utils.processing import choose_leiden_resolution
 
@@ -51,7 +52,24 @@ MAJOR_LABELS = [
 ]
 
 
-def plot_marker_genes(adata, save_dir=None):
+def map_subtype_to_major(label):
+    """Map subtype labels to their major cell type.
+    
+    Args:
+        label: Cell type label (e.g., "ExN_L2-4", "InN_SST", "Astro")
+    
+    Returns:
+        Major cell type label (e.g., "Excit", "Inhib", or the original label)
+    """
+    if label.startswith("ExN"):
+        return "Excit"
+    elif label.startswith("InN"):
+        return "Inhib"
+    else:
+        return label
+
+
+def plot_marker_genes(adata, marker_genes=MARKER_GENES, save_dir=None):
     """Plot marker genes across clusters
 
     Args:
@@ -60,7 +78,7 @@ def plot_marker_genes(adata, save_dir=None):
     """
     # Plot marker genes
     available_markers = []
-    for cell_type, genes in MARKER_GENES.items():
+    for cell_type, genes in marker_genes.items():
         available = [g for g in genes if g in adata.var_names]
         available_markers.extend(available)
 
@@ -70,8 +88,6 @@ def plot_marker_genes(adata, save_dir=None):
         available_markers = [
             g for g in available_markers if not (g in seen or seen.add(g))
         ]
-
-    if available_markers:
         sc.pl.dotplot(
             adata,
             available_markers,
@@ -88,316 +104,75 @@ def plot_marker_genes(adata, save_dir=None):
                 save_dir / "marker_genes_dotplot.png", dpi=300, bbox_inches="tight"
             )
             print(f"  Saved: {save_dir}/marker_genes_dotplot.png")
-            plt.close()
-        else:
-            plt.show()
+    
+    plt.show()
 
 
-def annotate_cell_types(
-    adata,
-    save_dir=None,
-    label_mode="cell",  # "cell" or "cluster"
-    margin=0.05,
-    cluster_agg="median",
-    fallback_cluster_map=None,
-):
-    """Annotate cell types based on marker genes and clustering.
-
+def create_cluster_aggregated_labels(adata, celltype_col='celltype', cluster_col='leiden'):
+    """Create cluster-level aggregated cell type labels.
+    
+    For each cluster, assigns the dominant (most common) cell type to all cells.
+    Useful for visualization purposes while preserving original per-cell annotations.
+    
     Args:
-        adata: AnnData object with clustering results.
-        save_dir: Directory to save plots (optional). If provided, plots are saved without display.
-        label_mode: "cell" for per-cell labeling, "cluster" for cluster-level labeling.
-        margin: Confidence margin between top and second-best scores.
-        cluster_agg: Aggregation statistic for cluster-level scores ("median" or "mean").
-        fallback_cluster_map: Optional mapping from leiden cluster id (str) to label; applied only
-            to cells that remain unlabeled after scoring.
-
+        adata: AnnData object with cell type annotations
+        celltype_col: Column name containing cell type labels
+        cluster_col: Column name containing cluster labels
+    
     Returns:
-        AnnData object with cell type annotations
+        None (modifies adata.obs in place, adds 'celltype_cluster' column)
     """
-    print("Annotating cell types...")
-
-    # Plot marker genes first, saved to save_dir/marker_genes_dotplot.png
-    plot_marker_genes(adata, save_dir=save_dir)
-
-    # Score-based major cell type assignment
-    if label_mode == "cluster":
-        assign_major_celltypes_by_cluster_scores(adata, margin=margin, agg=cluster_agg)
-    else:
-        assign_major_celltypes_by_scores(adata, margin=margin)
-
-    # Optional fallback: map any remaining unlabeled cells by a provided cluster map
-    if fallback_cluster_map is not None:
-        missing_mask = adata.obs.get("celltype").isna()
-        if missing_mask.any():
-            adata.obs.loc[missing_mask, "celltype"] = adata.obs.loc[
-                missing_mask, "leiden"
-            ].map(fallback_cluster_map)
-
-    # Refine excitatory neurons into cortical layers where possible
-    adata = refine_by_subtype_scores(
-        adata,
-        subtype_labels=["ExN_L2-4", "ExN_L5", "ExN_L6", "ExN_L6b"],
-        eligible_celltypes=["ExN", "Excit", "Neuron"],
-        margin=None,
+    if celltype_col not in adata.obs or cluster_col not in adata.obs:
+        return
+    
+    # Calculate dominant cell type per cluster
+    composition = pd.crosstab(
+        adata.obs[cluster_col],
+        adata.obs[celltype_col],
+        normalize='index'
+    )
+    dominant = composition.idxmax(axis=1)
+    
+    # Assign to all cells in each cluster
+    adata.obs['celltype_cluster'] = adata.obs[cluster_col].astype(str).map(
+        lambda x: dominant.get(str(x), 'nan')
     )
 
-    # Refine inhibitory neuron subtypes where possible
-    adata = refine_by_subtype_scores(
-        adata,
-        subtype_labels=["InN_SST", "InN_VIP", "InN_PVALB"],
-        eligible_celltypes=["Inhib", "Neuron"],
-        margin=None,
-    )
 
-    # Plot annotated cell types
-    sc.pl.umap(
-        adata,
-        color="celltype",
-        legend_loc="right margin",
-        title="Cell type annotation",
-        show=False,
-    )
-
-    if save_dir:
-        plt.savefig(save_dir / "celltype_umap.png", dpi=300, bbox_inches="tight")
-        print(f"  Saved: {save_dir}/celltype_umap.png")
-        plt.close()
-    else:
-        plt.show()
-
-    return adata
-
-
-def _recluster_subset(
-    adata,
-    mask,
-    subset_name,
-    save_dir=None,
-    n_top_genes=3000,
-    n_pcs=30,
-    n_neighbors=15,
-    resolution=0.6,
-    auto_resolution=True,
-    resolution_grid=None,
-    random_state=0,
-    write_h5ad=False,
-):
-    """Re-cluster and UMAP a subset of cells and map labels back to parent AnnData.
-
-    Args:
-        adata: Parent AnnData (expects .raw to be set to full gene space).
-        mask: Boolean array-like for cells to include in the subset.
-        subset_name: Short name used in output keys/files (e.g., "excit", "inhib").
-        save_dir: Optional Path for saving plots/files.
-        n_top_genes: Number of HVGs to select within the subset.
-        n_pcs: Number of PCs to compute/use for neighbors.
-        n_neighbors: k for kNN graph.
-        resolution: Leiden resolution if auto_resolution is False.
-        auto_resolution: If True, sweep resolutions and pick robust choice.
-        resolution_grid: Optional list of resolutions for sweeping.
-        random_state: Random seed for UMAP.
-        write_h5ad: If True, write subset AnnData to disk.
-    """
-    if save_dir is not None:
-        save_dir = Path(save_dir)
-
-    # Build subset from raw (full gene space) if available
-    use_base = (
-        adata.raw.to_adata() if getattr(adata, "raw", None) is not None else adata
-    )
-    sub = use_base[np.asarray(mask)].copy()
-    if sub.n_obs == 0:
-        return adata  # nothing to do
-
-    # Subset-specific HVGs and processing
-    sc.pp.highly_variable_genes(sub, flavor="seurat_v3", n_top_genes=int(n_top_genes))
-    if "highly_variable" in sub.var:
-        sub = sub[:, sub.var["highly_variable"]].copy()
-    sc.pp.scale(sub, max_value=10)
-    sc.tl.pca(sub, n_comps=min(int(n_pcs), max(2, sub.n_vars - 1)), svd_solver="arpack")
-    sc.pp.neighbors(
-        sub,
-        n_neighbors=int(n_neighbors),
-        n_pcs=min(int(n_pcs), sub.obsm["X_pca"].shape[1]),
-    )
-
-    # Choose resolution if requested
-    chosen_res = float(resolution)
-    if auto_resolution:
-        chosen_res = choose_leiden_resolution(
-            sub,
-            resolution_grid=resolution_grid,
-            min_cluster_size=20,
-            save_dir="./plots/leiden_resolution_sweep/",
-        )
-        print(f"Chosen Leiden resolution: {chosen_res}")
-    sc.tl.leiden(sub, resolution=float(chosen_res), key_added=f"leiden_{subset_name}")
-
-    # UMAP for visualization
-    sc.tl.umap(sub, random_state=int(random_state))
-
-    # Plot and save
-    if save_dir is not None:
-        colors = [f"leiden_{subset_name}"]
-        if "celltype" in sub.obs:
-            colors.append("celltype")
-        sc.pl.umap(
-            sub,
-            color=colors,
-            legend_loc="right margin",
-            show=False,
-        )
-        plt.savefig(save_dir / f"umap_{subset_name}.png", dpi=300, bbox_inches="tight")
-        print(f"  Saved: {save_dir}/umap_{subset_name}.png")
-        plt.close()
-
-        if write_h5ad:
-            out_path = save_dir / f"subset_{subset_name}.h5ad"
-            sub.write(out_path)
-            print(f"  Saved: {out_path}")
-
-    # Map labels back to parent AnnData
-    col = f"leiden_{subset_name}"
-    if col not in adata.obs:
-        adata.obs[col] = np.nan
-    adata.obs.loc[sub.obs_names, col] = sub.obs[col].astype(str).values
-
-    return adata
-
-
-def recluster_excit_inhib(
-    adata,
-    save_dir=None,
-    auto_resolution=True,
-    resolution_grid=None,
-    n_top_genes=3000,
-    n_pcs=30,
-    n_neighbors=15,
-    random_state=0,
-    write_h5ad=False,
-):
-    """Re-cluster excitatory and inhibitory subsets and save UMAPs.
-
-    Adds `leiden_excit` and `leiden_inhib` to `adata.obs` for cells in each subset.
-    """
-    if "celltype" not in adata.obs:
-        return adata
-
-    ct = adata.obs["celltype"].astype(str)
-    exc_mask = ct.str.startswith(("ExN_", "Excit"))
-    inh_mask = ct.str.startswith(("InN_", "Inhib"))
-
-    # Run subsets
-    adata = _recluster_subset(
-        adata,
-        mask=exc_mask,
-        subset_name="excit",
-        save_dir=save_dir,
-        n_top_genes=n_top_genes,
-        n_pcs=n_pcs,
-        n_neighbors=n_neighbors,
-        resolution=0.6,
-        auto_resolution=auto_resolution,
-        resolution_grid=resolution_grid,
-        random_state=random_state,
-        write_h5ad=write_h5ad,
-    )
-
-    adata = _recluster_subset(
-        adata,
-        mask=inh_mask,
-        subset_name="inhib",
-        save_dir=save_dir,
-        n_top_genes=n_top_genes,
-        n_pcs=n_pcs,
-        n_neighbors=n_neighbors,
-        resolution=0.8,
-        auto_resolution=auto_resolution,
-        resolution_grid=resolution_grid,
-        random_state=random_state,
-        write_h5ad=write_h5ad,
-    )
-
-    return adata
-
-
-def refine_by_subtype_scores(adata, subtype_labels, eligible_celltypes, margin=None):
-    """Generic refinement by module scores within an eligible parent class.
-
-    Computes per-cell module scores for each subtype label, selects the best
-    label per cell, and assigns it only for cells whose current label is in
-    eligible_celltypes. If margin is provided, only assigns when (best -
-    second_best) >= margin; otherwise assigns unconditionally within eligible
-    cells.
-
-    Args:
-        adata: AnnData with 'celltype' column present.
-        subtype_labels: List of label keys that exist in get_marker_genes().
-        eligible_celltypes: List of parent labels allowed to be refined.
-        margin: Optional float; confidence margin threshold.
-
-    Returns:
-        AnnData with refined 'celltype' assignments.
-    """
-    if "celltype" not in adata.obs:
-        return adata
-
-    # Determine which gene space to use
-    use_raw = getattr(adata, "raw", None) is not None and adata.raw is not None
-    var_names = adata.raw.var_names if use_raw else adata.var_names
-
-    # Compute module scores per subtype
-    score_cols = []
-    for label in subtype_labels:
-        genes = [g for g in MARKER_GENES.get(label, []) if g in var_names]
-        if not genes:
-            continue
-        score_name = f"score_{label}"
-        sc.tl.score_genes(
-            adata, gene_list=genes, score_name=score_name, use_raw=use_raw
-        )
-        score_cols.append(score_name)
-
-    if not score_cols:
-        return adata
-
-    scores = adata.obs[score_cols].to_numpy()
-    best_idx = np.argmax(scores, axis=1)
-    score_labels = np.array([c.replace("score_", "") for c in score_cols])
-    best_labels = score_labels[best_idx]
-
-    # Optional margin gating
-    if margin is not None and scores.shape[1] > 1:
-        part = np.partition(scores, -2, axis=1)
-        second_best = part[:, -2]
-        best = scores[np.arange(scores.shape[0]), best_idx]
-        confident = (best - second_best) >= float(margin)
-    else:
-        confident = np.ones(scores.shape[0], dtype=bool)
-
-    eligible_mask = adata.obs["celltype"].isin(eligible_celltypes).to_numpy()
-    update_mask = eligible_mask & confident
-    if update_mask.any():
-        adata.obs.loc[update_mask, "celltype"] = best_labels[update_mask]
-
-    return adata
-
-
-def assign_major_celltypes_by_scores(adata, margin=0.05):
+def assign_major_celltypes_by_scores(adata, marker_genes=MARKER_GENES, margin=0.05, major_labels=MAJOR_LABELS):
     """Assign major cell types using module scores with a confidence margin.
+    
+    Uses a two-stage approach to avoid subtype markers overwhelming major type assignment:
+    1. Stage 1: Score only major types (Excit, Inhib, Astro, etc.) - no subtypes
+       - ALL cells assigned to best-scoring major type
+       - Cells with (best - second_best) >= margin marked as "high" confidence
+       - Remaining cells marked as "low" confidence
+    2. Stage 2: Within Excit cells, score ExN subtypes; within Inhib cells, score InN subtypes
+       - ALL cells assigned to best-scoring subtype
+       - Confidence updated based on subtype score margin
+    
+    This prevents having 12 ExN subtypes compete against 1 Inhib label.
 
-    Creates per-panel scores (using raw if available), picks the top-scoring
-    label when its score exceeds the next-best by `margin`. Otherwise leaves
-    the celltype as NaN for fallback mapping.
+    Args:
+        adata: AnnData object
+        marker_genes: Dictionary of cell type markers
+        margin: Confidence margin between top and second-best scores (default: 0.05)
+        major_labels: List of major cell type labels to score in stage 1
+        
+    Creates columns:
+        celltype: Major cell type (Excit, Inhib, Astro, etc.)
+        celltype_detail: Detailed subtype (ExN_L5_IT, InN_SST, etc.)
+        annotation_confidence: "high" or "low" based on score margin
     """
     use_raw = getattr(adata, "raw", None) is not None and adata.raw is not None
     var_names = adata.raw.var_names if use_raw else adata.var_names
 
+    print("Stage 1: Assigning major cell types...")
+    
+    # STAGE 1: Score only major cell types
     score_cols = []
-    # Label by clusters rather than by individual cells
-    for lbl in MAJOR_LABELS:
-        genes = [g for g in MARKER_GENES.get(lbl, []) if g in var_names]
+    for lbl in major_labels:
+        genes = [g for g in marker_genes.get(lbl, []) if g in var_names]
         if not genes:
             continue
         score_name = f"score_{lbl}"
@@ -419,25 +194,143 @@ def assign_major_celltypes_by_scores(adata, margin=0.05):
     winners = labels[top_idx]
 
     confident = best - second_best >= margin
-    # Initialize or update celltype only where confident
-    if "celltype" not in adata.obs:
-        adata.obs["celltype"] = np.nan
+    
+    # Initialize celltype columns
+    adata.obs["celltype"] = np.nan
+    adata.obs["celltype_detail"] = np.nan
+    adata.obs["annotation_confidence"] = "unassigned"
+    
+    # Assign major types to confident cells
     adata.obs.loc[confident, "celltype"] = winners[confident]
+    adata.obs.loc[confident, "celltype_detail"] = winners[confident]
+    adata.obs.loc[confident, "annotation_confidence"] = "high"
+    
+    # Fallback: assign remaining cells to best-scoring type (even if low confidence)
+    low_confidence = ~confident
+    if low_confidence.sum() > 0:
+        adata.obs.loc[low_confidence, "celltype"] = winners[low_confidence]
+        adata.obs.loc[low_confidence, "celltype_detail"] = winners[low_confidence]
+        adata.obs.loc[low_confidence, "annotation_confidence"] = "low"
+    
+    print(f"  ✓ High confidence: {confident.sum():,} cells ({confident.sum()/len(confident)*100:.1f}%)")
+    print(f"  ✓ Low confidence: {low_confidence.sum():,} cells ({low_confidence.sum()/len(confident)*100:.1f}%)")
+    print(f"  ✓ Total assigned: {len(confident):,} cells (100%)")
+    
+    # STAGE 2: Refine Excit and Inhib with subtypes
+    print("\nStage 2: Refining neuronal subtypes...")
+    
+    # Refine Excit → ExN subtypes
+    excit_mask = adata.obs["celltype"] == "Excit"
+    if excit_mask.sum() > 0:
+        _refine_subtypes(adata, excit_mask, "ExN", marker_genes, margin, use_raw, var_names)
+    
+    # Refine Inhib → InN subtypes  
+    inhib_mask = adata.obs["celltype"] == "Inhib"
+    if inhib_mask.sum() > 0:
+        _refine_subtypes(adata, inhib_mask, "InN", marker_genes, margin, use_raw, var_names)
+    
+    # Print final stats
+    print("\n✓ Final cell type distribution:")
+    major_counts = adata.obs["celltype"].value_counts()
+    for ct, count in major_counts.items():
+        print(f"  {ct}: {count:,}")
 
 
-def assign_major_celltypes_by_cluster_scores(adata, margin=0.05, agg="median"):
+def _refine_subtypes(adata, mask, prefix, marker_genes, margin, use_raw, var_names):
+    """Helper function to refine a major cell type into subtypes.
+    
+    Args:
+        adata: AnnData object
+        mask: Boolean mask of cells to refine
+        prefix: Subtype prefix (e.g., "ExN" or "InN")
+        marker_genes: Dictionary of marker genes
+        margin: Confidence margin
+        use_raw: Whether to use raw data
+        var_names: Variable names to check
+    """
+    # Get all subtypes with this prefix
+    subtypes = [k for k in marker_genes.keys() if k.startswith(prefix)]
+    if not subtypes:
+        return
+    
+    # Score subtypes only for cells with this major type
+    score_cols = []
+    for lbl in subtypes:
+        genes = [g for g in marker_genes.get(lbl, []) if g in var_names]
+        if not genes:
+            continue
+        score_name = f"score_{lbl}"
+        # Only score if not already scored
+        if score_name not in adata.obs.columns:
+            sc.tl.score_genes(
+                adata, gene_list=genes, score_name=score_name, use_raw=use_raw
+            )
+        score_cols.append(score_name)
+    
+    if not score_cols:
+        return
+    
+    # Get scores only for masked cells
+    subset_scores = adata.obs.loc[mask, score_cols].to_numpy()
+    top_idx = np.argmax(subset_scores, axis=1)
+    
+    # Check confidence
+    if subset_scores.shape[1] > 1:
+        part = np.partition(subset_scores, -2, axis=1)
+        second_best = part[:, -2]
+        best = subset_scores[np.arange(subset_scores.shape[0]), top_idx]
+        confident = (best - second_best) >= margin
+    else:
+        confident = np.ones(subset_scores.shape[0], dtype=bool)
+    
+    labels = np.array([c.replace("score_", "") for c in score_cols])
+    winners = labels[top_idx]
+    
+    # Update celltype_detail for ALL cells (high and low confidence)
+    mask_indices = np.where(mask)[0]
+    
+    # High confidence cells
+    confident_indices = mask_indices[confident]
+    adata.obs.loc[adata.obs.index[confident_indices], "celltype_detail"] = winners[confident]
+    adata.obs.loc[adata.obs.index[confident_indices], "annotation_confidence"] = "high"
+    
+    # Low confidence cells - still assign best subtype
+    low_conf = ~confident
+    if low_conf.sum() > 0:
+        low_conf_indices = mask_indices[low_conf]
+        adata.obs.loc[adata.obs.index[low_conf_indices], "celltype_detail"] = winners[low_conf]
+        # Keep their confidence as "low" from Stage 1, or set to "low" if was "high"
+        current_conf = adata.obs.loc[adata.obs.index[low_conf_indices], "annotation_confidence"]
+        adata.obs.loc[adata.obs.index[low_conf_indices], "annotation_confidence"] = "low"
+    
+    major_type = "Excit" if prefix == "ExN" else "Inhib"
+    print(f"  {major_type}: {confident.sum():,} high confidence, {low_conf.sum():,} low confidence subtypes ({mask.sum():,} total)")
+
+
+def assign_major_celltypes_by_cluster_scores(adata, marker_genes=MARKER_GENES, margin=0.05, agg="median", include_subtypes=True):
     """Assign major cell types at the cluster level using module scores.
 
-    This computes per-cell module scores, aggregates them per Leiden cluster,
-    selects the top label per cluster, and assigns it to all cells in that
-    cluster when the winning score exceeds the runner-up by `margin`.
+    Computes scores for major cell types AND subtypes (e.g., ExN_L2-4, InN_SST).
+    Aggregates scores per cluster, assigns the best-scoring label to the cluster,
+    then maps subtypes back to their parent major type.
+    This ensures cells with strong subtype markers are captured (e.g., ExN_L5 → Excit).
+
+    Args:
+        adata: AnnData object
+        marker_genes: Dictionary of cell type markers to use for annotation.
+        margin: Confidence margin between top and second-best scores
+        agg: Aggregation method ('median' or 'mean')
+        include_subtypes: If True, score subtypes in addition to major types (RECOMMENDED)
     """
     use_raw = getattr(adata, "raw", None) is not None and adata.raw is not None
     var_names = adata.raw.var_names if use_raw else adata.var_names
 
+    # Select which labels to score
+    labels_to_score = list(marker_genes.keys())
+
     score_cols = []
-    for lbl in MAJOR_LABELS:
-        genes = [g for g in MARKER_GENES.get(lbl, []) if g in var_names]
+    for lbl in labels_to_score:
+        genes = [g for g in marker_genes.get(lbl, []) if g in var_names]
         if not genes:
             continue
         score_name = f"score_{lbl}"
@@ -453,9 +346,13 @@ def assign_major_celltypes_by_cluster_scores(adata, margin=0.05, agg="median"):
     if cluster_key not in adata.obs:
         return
 
+    # Initialize celltype columns
     if "celltype" not in adata.obs:
         adata.obs["celltype"] = np.nan
+    if include_subtypes and "celltype_detail" not in adata.obs:
+        adata.obs["celltype_detail"] = np.nan
 
+    # Aggregate scores per cluster
     grouped = (
         adata.obs.groupby(cluster_key)[score_cols].median()
         if agg == "median"
@@ -473,228 +370,40 @@ def assign_major_celltypes_by_cluster_scores(adata, margin=0.05, agg="median"):
 
     confident = best - second_best >= margin
 
+    # Track assignment statistics
+    n_via_major = 0
+    n_via_subtype = 0
+    
     for cluster_id, is_conf in zip(grouped.index.astype(str), confident):
         if not is_conf:
             continue
         label = winners[grouped.index.astype(str) == cluster_id][0]
         mask = adata.obs[cluster_key].astype(str) == cluster_id
-        adata.obs.loc[mask, "celltype"] = label
-
-
-def plot_cell_type_summary(adata, save_dir=None):
-    """Plot summary of cell types across samples
-
-    Args:
-        adata: AnnData object with cell type annotations
-        save_dir: Directory to save plots (optional). If provided, plots are saved without display.
-    """
-    # Cell type counts
-    celltype_counts = (
-        adata.obs.groupby(["orig.ident", "celltype"]).size().unstack(fill_value=0)
-    )
-
-    # Plot stacked bar chart
-    fig, ax = plt.subplots(figsize=(12, 6))
-    celltype_counts.plot(kind="bar", stacked=True, ax=ax)
-    plt.title("Cell type distribution across samples")
-    plt.xlabel("Sample")
-    plt.ylabel("Number of cells")
-    plt.xticks(rotation=45, ha="right")
-    plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-    plt.tight_layout()
-
-    if save_dir:
-        fig.savefig(
-            save_dir / "celltype_distribution.png", dpi=300, bbox_inches="tight"
-        )
-        print(f"  Saved: {save_dir}/celltype_distribution.png")
-        plt.close(fig)
-    else:
-        plt.show()
-
-    # Print summary table
-    print("\nCell type summary:")
-    print(adata.obs["celltype"].value_counts().sort_index())
-
-
-def compute_top_markers_per_cluster(
-    adata,
-    groupby="leiden",
-    method="wilcoxon",
-    n_top=30,
-    pval_adj_cutoff=None,
-    save_dir=None,
-    plot=False,
-):
-    """Compute top marker genes per cluster using differential expression.
-
-    Args:
-        adata: AnnData object with clustering results.
-        groupby: Column in adata.obs to group by (default: "leiden").
-        method: DE method passed to scanpy (e.g., "wilcoxon", "t-test").
-        n_top: Number of top genes to rank per group.
-        pval_adj_cutoff: Optional adjusted p-value cutoff to filter results.
-        save_dir: Optional Path to save a CSV summary and optional plots.
-        plot: If True, create a rank_genes_groups plot (saved if save_dir provided).
-
-    Returns:
-        Pandas DataFrame with ranked markers across all groups.
-    """
-    if groupby not in adata.obs:
-        raise KeyError(f"Groupby key '{groupby}' not found in adata.obs")
-
-    sc.tl.rank_genes_groups(
-        adata,
-        groupby=groupby,
-        method=method,
-        n_genes=int(n_top),
-        pts=True,
-    )
-
-    markers_df = sc.get.rank_genes_groups_df(adata, None)
-    # Ensure consistent columns exist across scanpy versions
-    if "pvals_adj" in markers_df.columns and pval_adj_cutoff is not None:
-        markers_df = markers_df[markers_df["pvals_adj"] <= float(pval_adj_cutoff)]
-
-    if save_dir is not None:
-        out_csv = save_dir / "top_markers_by_cluster.csv"
-        markers_df.to_csv(out_csv, index=False)
-        print(f"  Saved: {out_csv}")
-
-    if plot:
-        sc.pl.rank_genes_groups(adata, n_genes=min(n_top, 20), sharey=False, show=False)
-        if save_dir is not None:
-            out_png = save_dir / "top_markers_ranked.png"
-            plt.savefig(out_png, dpi=300, bbox_inches="tight")
-            print(f"  Saved: {out_png}")
-            plt.close()
+        
+        if include_subtypes:
+            # Store detailed subtype
+            adata.obs.loc[mask, "celltype_detail"] = label
+            
+            # Map to major type
+            major_label = map_subtype_to_major(label)
+            adata.obs.loc[mask, "celltype"] = major_label
+            
+            # Track stats
+            if major_label != label:
+                n_via_subtype += mask.sum()
+            else:
+                n_via_major += mask.sum()
         else:
-            plt.show()
+            adata.obs.loc[mask, "celltype"] = label
+    
+    # Report assignment statistics
+    n_assigned = adata.obs["celltype"].notna().sum()
+    if include_subtypes:
+        print(f"✓ Assigned {confident.sum()} / {len(grouped)} clusters")
+        print(f"  Total cells assigned: {n_assigned:,} / {adata.n_obs:,} ({n_assigned/adata.n_obs*100:.1f}%)")
+        print(f"  Via major type markers: {n_via_major:,}")
+        print(f"  Via subtype markers: {n_via_subtype:,}")
+    else:
+        print(f"✓ Assigned {confident.sum()} / {len(grouped)} clusters")
+        print(f"  Total cells assigned: {n_assigned:,} / {adata.n_obs:,} ({n_assigned/adata.n_obs*100:.1f}%)")
 
-    return markers_df
-
-
-def compare_top_markers_to_expected(
-    adata,
-    markers_df=None,
-    groupby="leiden",
-    top_n=10,
-    panels=None,
-    save_dir=None,
-    plot=True,
-):
-    """Compare top DE genes per cluster with expected marker panels.
-
-    Builds overlap metrics between each cluster's top-N DE genes and each
-    expected marker gene panel.
-
-    Args:
-        adata: AnnData with DE results in .uns["rank_genes_groups"] or provide markers_df.
-        markers_df: Optional DataFrame from sc.get.rank_genes_groups_df(adata, None).
-        groupby: Cluster column used for DE (default: "leiden").
-        top_n: Number of top genes per cluster to evaluate.
-        panels: Optional dict mapping panel name -> list of genes. Defaults to MARKER_GENES.
-        save_dir: Optional Path to write CSVs and heatmap.
-        plot: If True, save a heatmap of precision (overlap/top_n).
-
-    Returns:
-        A tuple of (long_df, precision_matrix) where long_df is a list of dicts
-        usable as rows for a DataFrame, and precision_matrix is a dict of
-        {group: {panel: precision}}.
-    """
-    if panels is None:
-        panels = MARKER_GENES
-
-    # Make sets for faster overlap
-    panel_to_genes = {k: set(v) for k, v in panels.items()}
-
-    # Acquire ranked genes per group
-    if markers_df is None:
-        markers_df = sc.get.rank_genes_groups_df(adata, None)
-
-    # Determine sort key preference
-    sort_key = (
-        "scores"
-        if "scores" in markers_df.columns
-        else ("logfoldchanges" if "logfoldchanges" in markers_df.columns else None)
-    )
-    if sort_key is None:
-        raise KeyError("markers_df must contain 'scores' or 'logfoldchanges' column")
-
-    # Build top-N gene sets per group
-    var_names = set(adata.var_names)
-    groups = sorted(markers_df["group"].unique())
-    group_to_top = {}
-    for g in groups:
-        sub = markers_df[markers_df["group"] == g]
-        sub = sub.sort_values(sort_key, ascending=False).head(int(top_n))
-        genes = [nm for nm in sub["names"].tolist() if nm in var_names]
-        group_to_top[g] = set(genes)
-
-    # Compute overlaps
-    long_rows = []
-    precision_matrix = {g: {} for g in groups}
-    for g in groups:
-        top_set = group_to_top[g]
-        for panel_name, panel_genes in panel_to_genes.items():
-            overlap = len(top_set & panel_genes)
-            precision = overlap / max(1, len(top_set))
-            recall = overlap / max(1, len(panel_genes))
-            denom = len(top_set | panel_genes)
-            jaccard = overlap / max(1, denom)
-            long_rows.append(
-                {
-                    "group": g,
-                    "panel": panel_name,
-                    "overlap": overlap,
-                    "top_n": len(top_set),
-                    "panel_size": len(panel_genes),
-                    "precision": precision,
-                    "recall": recall,
-                    "jaccard": jaccard,
-                }
-            )
-            precision_matrix[g][panel_name] = precision
-
-    # Optional outputs
-    if save_dir is not None:
-        try:
-            import pandas as _pd  # Local import to avoid hard dependency elsewhere
-
-            long_df = _pd.DataFrame(long_rows)
-            out_csv = save_dir / "expected_marker_overlap_long.csv"
-            long_df.to_csv(out_csv, index=False)
-            print(f"  Saved: {out_csv}")
-
-            # Pivot to matrix for heatmap
-            mat = long_df.pivot(index="group", columns="panel", values="precision")
-            out_mat = save_dir / "expected_marker_overlap_matrix_precision.csv"
-            mat.to_csv(out_mat)
-            print(f"  Saved: {out_mat}")
-
-            if plot:
-                fig, ax = plt.subplots(
-                    figsize=(
-                        max(6, len(mat.columns) * 0.6),
-                        max(4, len(mat.index) * 0.4),
-                    )
-                )
-                im = ax.imshow(
-                    mat.values, aspect="auto", cmap="viridis", vmin=0, vmax=1
-                )
-                ax.set_xticks(range(len(mat.columns)))
-                ax.set_xticklabels(mat.columns, rotation=45, ha="right")
-                ax.set_yticks(range(len(mat.index)))
-                ax.set_yticklabels(mat.index)
-                ax.set_title("Precision: overlap of top-N vs expected markers")
-                cbar = fig.colorbar(im, ax=ax)
-                cbar.set_label("precision (overlap/top_n)")
-                plt.tight_layout()
-                out_png = save_dir / "expected_marker_overlap_heatmap.png"
-                plt.savefig(out_png, dpi=300, bbox_inches="tight")
-                print(f"  Saved: {out_png}")
-                plt.close(fig)
-        except Exception as e:
-            print(f"Warning: could not write overlap CSVs/plot: {e}")
-
-    return long_rows, precision_matrix
