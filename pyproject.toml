@@ -44,6 +44,8 @@ dependencies = [
     # Statistical analysis
     "statsmodels>=0.13.0",
     "scikit-learn>=1.0.0",
+    # Differential expression
+    "pydeseq2>=0.4.0",
     # Data handling
     "h5py>=3.6.0",
     "tables>=3.7.0",
@@ -56,6 +58,7 @@ dependencies = [
     "scikit-misc>=0.2.0",
     "ipykernel>=6.31.0",
     "drive>=0.4.5",
+    "pydeseq2>=0.4.12",
 ]
 
 [project.optional-dependencies]
