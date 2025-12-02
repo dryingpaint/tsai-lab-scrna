@@ -254,7 +254,23 @@ def run_de_with_deseq2(counts_df, sample_info_df, contrast_name, group1, group2,
         dds.deseq2()
         
         # Get results
-        stat_res = DeseqStats(dds, contrast=["condition", group1, group2])
+        # lfc_null: test against this threshold instead of 0
+        # If lfc_null=0: tests "is FC different from 0?" (default)
+        # If lfc_null=0.5: tests "is |FC| > 0.5?" (more stringent)
+        lfc_threshold = de_params.get('lfc_null', None)
+        
+        if lfc_threshold and lfc_threshold > 0:
+            # Test against threshold (more conservative, recommended)
+            stat_res = DeseqStats(
+                dds, 
+                contrast=["condition", group1, group2],
+                lfc_null=lfc_threshold  # Test: |logFC| > threshold
+            )
+            print(f"    Using lfc_null={lfc_threshold} (testing |logFC| > {lfc_threshold})")
+        else:
+            # Test against 0 (standard approach)
+            stat_res = DeseqStats(dds, contrast=["condition", group1, group2])
+        
         stat_res.summary()
         
         # Extract results
@@ -397,7 +413,7 @@ def run_de_with_ttest(counts_df, sample_info_df, contrast_name, group1, group2,
 
 
 def run_de_for_celltype(pb_df, sample_info_df, cell_type, de_params, 
-                        min_samples_per_group=2, use_deseq2=True):
+                        min_samples_per_group=2):
     """Run differential expression analysis for a specific cell type
     
     Args:
@@ -439,10 +455,7 @@ def run_de_for_celltype(pb_df, sample_info_df, cell_type, de_params,
         return None
     
     print(f"  Analyzing {ct_counts.shape[0]:,} genes across {len(ct_samples)} samples")
-    if use_deseq2:
-        print(f"  Method: DESeq2 (negative binomial model)")
-    else:
-        print(f"  Method: t-test on log-CPM (fallback)")
+    print(f"  Method: DESeq2 (negative binomial model)")
     
     # Define contrasts
     contrasts = [
@@ -455,16 +468,10 @@ def run_de_for_celltype(pb_df, sample_info_df, cell_type, de_params,
     results = []
     
     for contrast_name, group1, group2 in contrasts:
-        if use_deseq2:
-            result = run_de_with_deseq2(
-                ct_counts, ct_samples, contrast_name, 
-                group1, group2, de_params, cell_type
-            )
-        else:
-            result = run_de_with_ttest(
-                ct_counts, ct_samples, contrast_name,
-                group1, group2, de_params, cell_type
-            )
+        result = run_de_with_deseq2(
+            ct_counts, ct_samples, contrast_name, 
+            group1, group2, de_params, cell_type
+        )
         
         if result is not None:
             results.append(result)

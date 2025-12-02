@@ -108,35 +108,99 @@ def plot_marker_genes(adata, marker_genes=MARKER_GENES, save_dir=None):
     plt.show()
 
 
-def create_cluster_aggregated_labels(adata, celltype_col='celltype', cluster_col='leiden'):
-    """Create cluster-level aggregated cell type labels.
+def create_cluster_aggregated_labels(adata, celltype_col='celltype', cluster_col='leiden', 
+                                    purity_threshold=0.60):
+    """Create cluster-level aggregated cell type labels with mixed cluster detection.
     
-    For each cluster, assigns the dominant (most common) cell type to all cells.
-    Useful for visualization purposes while preserving original per-cell annotations.
+    For each cluster:
+    - If dominant cell type is >purity_threshold: assigns that cell type
+    - If dominant cell type is <=purity_threshold: labels as "Mixed" and stores top 2-3 cell types
+    
+    This identifies heterogeneous clusters that may need re-clustering or further analysis.
     
     Args:
         adata: AnnData object with cell type annotations
         celltype_col: Column name containing cell type labels
         cluster_col: Column name containing cluster labels
+        purity_threshold: Threshold for cluster purity (default: 0.60 = 60%)
     
     Returns:
-        None (modifies adata.obs in place, adds 'celltype_cluster' column)
+        None (modifies adata.obs in place, adds 'celltype_cluster' and 'celltype_cluster_top_types' columns)
+    
+    Side effects:
+        - Adds 'celltype_cluster': cluster-level label ("celltype" or "Mixed")
+        - Adds 'celltype_cluster_top_types': top 2-3 cell types for each cluster
+        - Adds 'cluster_purity': proportion of dominant cell type in each cluster
+        - Prints summary of mixed clusters
     """
     if celltype_col not in adata.obs or cluster_col not in adata.obs:
         return
     
-    # Calculate dominant cell type per cluster
+    # Calculate cell type composition per cluster
     composition = pd.crosstab(
         adata.obs[cluster_col],
         adata.obs[celltype_col],
         normalize='index'
     )
-    dominant = composition.idxmax(axis=1)
     
-    # Assign to all cells in each cluster
-    adata.obs['celltype_cluster'] = adata.obs[cluster_col].astype(str).map(
-        lambda x: dominant.get(str(x), 'nan')
+    # Find dominant cell type and its proportion
+    dominant = composition.idxmax(axis=1)
+    dominant_prop = composition.max(axis=1)
+    
+    # For each cluster, get top 2-3 cell types
+    top_types_dict = {}
+    for cluster_id in composition.index:
+        # Sort cell types by proportion (descending)
+        sorted_types = composition.loc[cluster_id].sort_values(ascending=False)
+        # Take top 3 types with >5% representation
+        top_types = sorted_types[sorted_types > 0.05].head(3)
+        # Format as string: "Type1 (30%), Type2 (25%), Type3 (20%)"
+        top_str = ", ".join([f"{ct} ({prop*100:.1f}%)" for ct, prop in top_types.items()])
+        top_types_dict[str(cluster_id)] = top_str
+    
+    # Determine cluster label: use dominant if pure, else "Mixed"
+    cluster_labels = {}
+    mixed_clusters = []
+    
+    for cluster_id in composition.index:
+        if dominant_prop[cluster_id] > purity_threshold:
+            cluster_labels[str(cluster_id)] = dominant[cluster_id]
+        else:
+            cluster_labels[str(cluster_id)] = "Mixed"
+            mixed_clusters.append(cluster_id)
+    
+    # Assign to all cells
+    adata.obs['celltype_cluster'] = adata.obs[cluster_col].astype(str).map(cluster_labels)
+    adata.obs['celltype_cluster_top_types'] = adata.obs[cluster_col].astype(str).map(top_types_dict)
+    adata.obs['cluster_purity'] = adata.obs[cluster_col].astype(str).map(
+        lambda x: dominant_prop.get(str(x), 0.0)
     )
+    
+    # Print summary
+    print(f"\n{'='*60}")
+    print("CLUSTER PURITY ANALYSIS")
+    print(f"{'='*60}")
+    print(f"Purity threshold: {purity_threshold*100:.0f}%")
+    print(f"Pure clusters: {len(cluster_labels) - len(mixed_clusters)}")
+    print(f"Mixed clusters: {len(mixed_clusters)}")
+    
+    if mixed_clusters:
+        print(f"\n{'='*60}")
+        print("MIXED CLUSTERS (for further investigation)")
+        print(f"{'='*60}")
+        for cluster_id in mixed_clusters:
+            print(f"\nCluster {cluster_id}: {dominant[cluster_id]} ({dominant_prop[cluster_id]*100:.1f}%)")
+            print(f"  Top cell types: {top_types_dict[str(cluster_id)]}")
+            n_cells = (adata.obs[cluster_col] == cluster_id).sum()
+            print(f"  Total cells: {n_cells:,}")
+        
+        print(f"\n💡 Recommendation:")
+        print(f"  - These {len(mixed_clusters)} clusters show heterogeneous cell type composition")
+        print(f"  - Consider re-clustering these clusters at higher resolution")
+        print(f"  - Or check if they represent transitional/doublet populations")
+        print(f"  - Use 'celltype_cluster' == 'Mixed' to filter these cells")
+    
+    return mixed_clusters
 
 
 def assign_major_celltypes_by_scores(adata, marker_genes=MARKER_GENES, margin=0.05, major_labels=MAJOR_LABELS):
